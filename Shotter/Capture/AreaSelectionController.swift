@@ -1,5 +1,13 @@
 import AppKit
 
+/// 選択された領域。ウィンドウを選んだ場合は角丸のマスクをかけたいので区別する。
+struct SelectionResult {
+    /// AppKit グローバル座標。
+    let rect: CGRect
+    /// ウィンドウを選んで撮ったか。
+    let isWindow: Bool
+}
+
 /// 選択の仕方。
 enum CaptureMode {
     /// ドラッグで矩形を選ぶ。
@@ -15,18 +23,18 @@ enum CaptureMode {
 final class AreaSelectionController: NSObject, SelectionOverlayViewDelegate {
 
     private var windows: [SelectionOverlayWindow] = []
-    private var completion: ((CGRect?) -> Void)?
+    private var completion: ((SelectionResult?) -> Void)?
 
     private var mode: CaptureMode = .area
     private var candidateWindows: [CapturedWindow] = []
 
     var isActive: Bool { !windows.isEmpty }
 
-    /// - Parameter completion: 選択された矩形（AppKit グローバル座標）。キャンセル時は nil。
+    /// - Parameter completion: 選択結果。キャンセル時は nil。
     func begin(
         snapshots: [DisplaySnapshot],
         mode: CaptureMode = .area,
-        completion: @escaping (CGRect?) -> Void
+        completion: @escaping (SelectionResult?) -> Void
     ) {
         guard !isActive else { return }
         self.completion = completion
@@ -81,7 +89,7 @@ final class AreaSelectionController: NSObject, SelectionOverlayViewDelegate {
     }
 
     func overlayView(_ view: SelectionOverlayView, didFinishSelection rect: CGRect) {
-        finish(with: rect)
+        finish(with: SelectionResult(rect: rect, isWindow: false))
     }
 
     func overlayViewDidCancel(_ view: SelectionOverlayView) {
@@ -95,21 +103,18 @@ final class AreaSelectionController: NSObject, SelectionOverlayViewDelegate {
 
     func overlayViewDidConfirmHover(_ view: SelectionOverlayView) {
         guard mode == .window, let rect = view.globalSelection else { return }
-        finish(with: rect)
+        finish(with: SelectionResult(rect: rect, isWindow: true))
     }
 
-    func overlayViewDidToggleMode(_ view: SelectionOverlayView) {
-        mode = mode.toggled
-
-        for window in windows {
-            window.overlayView.mode = mode
-            window.overlayView.globalSelection = nil
-            window.overlayView.hoverLabel = nil
+    /// Space が押されたら、カーソル下のウィンドウをその場で撮る。
+    /// （以前はモード切り替えだけで、そのあとクリックが必要だった）
+    func overlayViewDidRequestWindowCapture(_ view: SelectionOverlayView) {
+        let point = NSEvent.mouseLocation
+        guard let hovered = candidateWindows.first(where: { $0.frame.contains(point) }) else {
+            NSSound.beep()
+            return
         }
-
-        if mode == .window {
-            updateHoveredWindow(at: NSEvent.mouseLocation)
-        }
+        finish(with: SelectionResult(rect: hovered.frame, isWindow: true))
     }
 
     /// カーソルの下にある一番手前のウィンドウを選択状態にする。
@@ -124,7 +129,7 @@ final class AreaSelectionController: NSObject, SelectionOverlayViewDelegate {
 
     // MARK: - Private
 
-    private func finish(with rect: CGRect?) {
+    private func finish(with result: SelectionResult?) {
         guard let completion else { return }
         self.completion = nil
 
@@ -135,6 +140,6 @@ final class AreaSelectionController: NSObject, SelectionOverlayViewDelegate {
         }
         windows.removeAll()
 
-        completion(rect)
+        completion(result)
     }
 }

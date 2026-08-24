@@ -10,8 +10,8 @@ protocol SelectionOverlayViewDelegate: AnyObject {
     func overlayView(_ view: SelectionOverlayView, didHoverAt globalPoint: CGPoint)
     /// ウィンドウモードでクリックされたとき。
     func overlayViewDidConfirmHover(_ view: SelectionOverlayView)
-    /// Space キーで範囲選択とウィンドウ選択を切り替えたとき。
-    func overlayViewDidToggleMode(_ view: SelectionOverlayView)
+    /// Space キーが押されたとき（カーソル下のウィンドウを即撮影する）。
+    func overlayViewDidRequestWindowCapture(_ view: SelectionOverlayView)
 }
 
 /// フリーズ画像の上に重ねる、範囲選択のための描画＋マウス処理レイヤー。
@@ -136,7 +136,7 @@ final class SelectionOverlayView: NSView {
         case 53: // Escape
             delegate?.overlayViewDidCancel(self)
         case 49: // Space
-            delegate?.overlayViewDidToggleMode(self)
+            delegate?.overlayViewDidRequestWindowCapture(self)
         default:
             super.keyDown(with: event)
         }
@@ -216,8 +216,8 @@ final class SelectionOverlayView: NSView {
     private func drawHint() {
         guard hoverPoint != nil else { return }
         let text = mode == .area
-            ? "ドラッグして範囲を選択　·　Space でウィンドウ選択　·　Esc でキャンセル"
-            : "ウィンドウをクリックして撮影　·　Space で範囲選択　·　Esc でキャンセル"
+            ? "ドラッグして範囲を選択　·　Space でカーソル下のウィンドウを撮影　·　Esc でキャンセル"
+            : "ウィンドウをクリック、または Space で撮影　·　Esc でキャンセル"
         let size = badgeSize(for: text)
         let origin = CGPoint(
             x: bounds.midX - size.width / 2,

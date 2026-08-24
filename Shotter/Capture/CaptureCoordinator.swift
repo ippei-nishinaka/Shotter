@@ -93,11 +93,23 @@ final class CaptureCoordinator {
             return
         }
 
-        guard let rect = await selectRegion(in: snapshots, mode: mode) else { return }
+        guard let selection = await selectRegion(in: snapshots, mode: mode) else { return }
 
-        guard let image = SnapshotCompositor.crop(snapshots, to: rect) else {
+        guard var image = SnapshotCompositor.crop(snapshots, to: selection.rect) else {
             AlertPresenter.showError(ScreenCaptureError.captureFailed("選択範囲を切り出せませんでした"))
             return
+        }
+
+        // ウィンドウを撮った場合、四隅には背景が写り込んでいる。
+        // macOS のウィンドウの角丸に合わせてくり抜く。
+        if selection.isWindow {
+            let scale = snapshots.first { $0.frame.intersects(selection.rect) }?.scale ?? 2
+            if let masked = ImageMask.roundedCorners(
+                image,
+                radius: ImageMask.windowCornerRadius * scale
+            ) {
+                image = masked
+            }
         }
 
         lastCapturedImage = image
@@ -109,13 +121,13 @@ final class CaptureCoordinator {
 
         switch Preferences.afterCaptureAction {
         case .openEditor:
-            EditorWindowController.present(image: image, pointSize: rect.size)
+            EditorWindowController.present(image: image, pointSize: selection.rect.size)
 
         case .thumbnail:
             copyOrReportFailure(image)
             NSApp.deactivate()
-            CaptureThumbnailPresenter.show(image: image, pointSize: rect.size) {
-                EditorWindowController.present(image: image, pointSize: rect.size)
+            CaptureThumbnailPresenter.show(image: image, pointSize: selection.rect.size) {
+                EditorWindowController.present(image: image, pointSize: selection.rect.size)
             }
 
         case .copyOnly:
@@ -151,10 +163,13 @@ final class CaptureCoordinator {
         AlertPresenter.showError(ScreenCaptureError.captureFailed("クリップボードへコピーできませんでした"))
     }
 
-    private func selectRegion(in snapshots: [DisplaySnapshot], mode: CaptureMode) async -> CGRect? {
+    private func selectRegion(
+        in snapshots: [DisplaySnapshot],
+        mode: CaptureMode
+    ) async -> SelectionResult? {
         await withCheckedContinuation { continuation in
-            selectionController.begin(snapshots: snapshots, mode: mode) { rect in
-                continuation.resume(returning: rect)
+            selectionController.begin(snapshots: snapshots, mode: mode) { result in
+                continuation.resume(returning: result)
             }
         }
     }

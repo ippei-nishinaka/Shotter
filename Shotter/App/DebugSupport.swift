@@ -235,6 +235,52 @@ enum DebugSupport {
         }
     }
 
+    /// `--debug-rounded <path>` で、角丸マスクの結果を PNG に書き出す。
+    @MainActor
+    static func dumpRoundedCornerSampleAndQuit() {
+        guard let index = CommandLine.arguments.firstIndex(of: "--debug-rounded"),
+              CommandLine.arguments.indices.contains(index + 1),
+              let image = makeTextSampleImage()
+        else { NSApp.terminate(nil); return }
+
+        let scale: CGFloat = 2
+        guard let masked = ImageMask.roundedCorners(
+            image,
+            radius: ImageMask.windowCornerRadius * scale
+        ) else {
+            log("マスクに失敗しました")
+            NSApp.terminate(nil)
+            return
+        }
+
+        // 透明部分が見えるように、市松模様の上に重ねて書き出す。
+        let width = masked.width
+        let height = masked.height
+        if let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+           let context = CGContext(
+            data: nil, width: width, height: height,
+            bitsPerComponent: 8, bytesPerRow: 0, space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+           ) {
+            let square = 16
+            for y in stride(from: 0, to: height, by: square) {
+                for x in stride(from: 0, to: width, by: square) {
+                    let dark = ((x / square) + (y / square)) % 2 == 0
+                    context.setFillColor(CGColor(srgbRed: dark ? 1 : 0.2, green: dark ? 0.2 : 0.6, blue: 0.4, alpha: 1))
+                    context.fill(CGRect(x: x, y: y, width: square, height: square))
+                }
+            }
+            context.draw(masked, in: CGRect(x: 0, y: 0, width: width, height: height))
+
+            if let composited = context.makeImage(),
+               let data = NSBitmapImageRep(cgImage: composited).representation(using: .png, properties: [:]) {
+                try? data.write(to: URL(fileURLWithPath: CommandLine.arguments[index + 1]))
+                log("角丸マスクの確認画像: \(CommandLine.arguments[index + 1])")
+            }
+        }
+        NSApp.terminate(nil)
+    }
+
     /// `--debug-windows` でウィンドウ一覧を標準エラーへ出して終了する。
     @MainActor
     static func dumpWindowListAndQuit() {
