@@ -37,6 +37,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DebugSupport.runOCRCheckAndQuit()
             return
         }
+        if CommandLine.arguments.contains("--debug-capture-timing") {
+            DebugSupport.measureCaptureTimingAndQuit()
+            return
+        }
+        if CommandLine.arguments.contains("--debug-overlay-frames") {
+            DebugSupport.dumpOverlayFramesAndQuit()
+            return
+        }
         if CommandLine.arguments.contains("--debug-windows") {
             DebugSupport.dumpWindowListAndQuit()
         }

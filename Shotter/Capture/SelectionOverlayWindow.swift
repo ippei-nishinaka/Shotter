@@ -22,6 +22,9 @@ final class SelectionOverlayWindow: NSWindow {
         backgroundColor = .clear
         hasShadow = false
         isReleasedWhenClosed = false
+        // 既定のままだと AppKit がフェード／スケールのアニメーションを付けるため、
+        // 暗転が「ぐらっと」動いて見える。即座に出したいので明示的に切る。
+        animationBehavior = .none
         acceptsMouseMovedEvents = true
         ignoresMouseEvents = false
         // メニューバーや Dock よりも前面に出す。
@@ -42,6 +45,12 @@ final class SelectionOverlayWindow: NSWindow {
         container.addSubview(overlayView)
 
         contentView = container
+    }
+
+    /// 画面全体（メニューバーの領域を含む）を覆いたいので、
+    /// AppKit による位置の補正を無効にする。
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+        frameRect
     }
 
     override var canBecomeKey: Bool { true }

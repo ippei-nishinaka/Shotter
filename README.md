@@ -83,6 +83,8 @@ export SHOTTER_NOTARY_PROFILE="shotter"   # xcrun notarytool store-credentials �
 | `--debug-loginitem <path>` | 自動起動の登録・解除を試して結果を書き出す |
 | `--debug-tooltip <キー>` | 指定したツール名／ボタン名のツールチップを出しっぱなしにする |
 | `--debug-ocr` | 文字を描いたテスト画像を OCR して結果を出力する |
+| `--debug-overlay-frames` | 範囲選択オーバーレイの位置とアニメーション設定を出力する |
+| `--debug-capture-timing <path>` | 暗転が出るまでの所要時間を計測してファイルへ書き出す |
 | `--debug-dump-canvas <path>` | 表示内容を PNG に書き出して終了する |
 
 ```

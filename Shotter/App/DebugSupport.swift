@@ -118,6 +118,123 @@ enum DebugSupport {
         return context.makeImage()
     }
 
+    /// `--debug-overlay-frames` で、範囲選択オーバーレイの実際の位置と
+    /// アニメーション設定を出力する。画面収録の権限は不要（ダミー画像を使う）。
+    @MainActor
+    static func dumpOverlayFramesAndQuit() {
+        for screen in NSScreen.screens {
+            let scale = screen.backingScaleFactor
+            guard let image = solidImage(
+                width: Int(screen.frame.width * scale),
+                height: Int(screen.frame.height * scale)
+            ) else { continue }
+
+            let snapshot = DisplaySnapshot(
+                displayID: screen.displayID ?? 0,
+                frame: screen.frame,
+                scale: scale,
+                image: image
+            )
+            let window = SelectionOverlayWindow(snapshot: snapshot)
+            window.orderFrontRegardless()
+
+            let requested = screen.frame
+            let actual = window.frame
+            let shifted = requested != actual
+
+            log("ディスプレイ \(screen.displayID ?? 0)")
+            log("  要求した frame: \(requested)")
+            log("  実際の frame  : \(actual)")
+            log("  ずれ          : \(shifted ? "⚠️ あり（AppKit に補正されています）" : "なし")")
+            log("  animationBehavior: \(window.animationBehavior.rawValue) "
+                + "(none=\(NSWindow.AnimationBehavior.none.rawValue), default=\(NSWindow.AnimationBehavior.default.rawValue))")
+            log("  visibleFrame  : \(screen.visibleFrame)")
+
+            window.orderOut(nil)
+        }
+        NSApp.terminate(nil)
+    }
+
+    private static func solidImage(width: Int, height: Int) -> CGImage? {
+        guard width > 0, height > 0,
+              let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+              let context = CGContext(
+                data: nil, width: width, height: height,
+                bitsPerComponent: 8, bytesPerRow: 0, space: colorSpace,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+              )
+        else { return nil }
+        context.setFillColor(CGColor(gray: 0.5, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        return context.makeImage()
+    }
+
+    /// `--debug-capture-timing <path>` で、暗転が出るまでの所要時間を測って
+    /// ファイルへ書き出す。`open` 経由で起動しないと権限が Terminal 側に
+    /// 紐付いてしまうため、標準エラーではなくファイルに落とす。
+    @MainActor
+    static func measureCaptureTimingAndQuit() {
+        let outputPath: String? = {
+            guard let index = CommandLine.arguments.firstIndex(of: "--debug-capture-timing"),
+                  CommandLine.arguments.indices.contains(index + 1)
+            else { return nil }
+            return CommandLine.arguments[index + 1]
+        }()
+
+        var report: [String] = []
+        func record(_ line: String) {
+            report.append(line)
+            log(line)
+            if let outputPath {
+                try? report.joined(separator: "\n").write(
+                    toFile: outputPath, atomically: true, encoding: .utf8
+                )
+            }
+        }
+
+        guard CGPreflightScreenCaptureAccess() else {
+            record("画面収録が未許可のため計測できません")
+            NSApp.terminate(nil)
+            return
+        }
+
+        Task { @MainActor in
+            let service = ScreenCaptureService()
+            for attempt in 1...3 {
+                let start = Date()
+                do {
+                    let snapshots = try await service.captureAllDisplays()
+                    let captured = Date()
+
+                    var windows: [SelectionOverlayWindow] = []
+                    for snapshot in snapshots {
+                        let window = SelectionOverlayWindow(snapshot: snapshot)
+                        window.contentView?.layoutSubtreeIfNeeded()
+                        window.display()
+                        windows.append(window)
+                    }
+                    for window in windows { window.orderFrontRegardless() }
+                    let shown = Date()
+
+                    record(String(
+                        format: "%d 回目: 撮影 %.0f ms / オーバーレイ表示 %.0f ms / 合計 %.0f ms (%d 画面)",
+                        attempt,
+                        captured.timeIntervalSince(start) * 1000,
+                        shown.timeIntervalSince(captured) * 1000,
+                        shown.timeIntervalSince(start) * 1000,
+                        snapshots.count
+                    ))
+
+                    for window in windows { window.orderOut(nil) }
+                } catch {
+                    record("失敗: \(error)")
+                }
+                try? await Task.sleep(nanoseconds: 300_000_000)
+            }
+            NSApp.terminate(nil)
+        }
+    }
+
     /// `--debug-windows` でウィンドウ一覧を標準エラーへ出して終了する。
     @MainActor
     static func dumpWindowListAndQuit() {

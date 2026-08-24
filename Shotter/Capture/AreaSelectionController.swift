@@ -39,15 +39,28 @@ final class AreaSelectionController: NSObject, SelectionOverlayViewDelegate {
             window.overlayView.delegate = self
             window.overlayView.mode = mode
             windows.append(window)
+        }
+
+        // 前面に出す前に描画を済ませておく。
+        // 空のウィンドウが 1 フレーム表示されて、そのあと画像が入る…という
+        // 二段階の見え方になるのを防ぐ。
+        for window in windows {
+            window.contentView?.layoutSubtreeIfNeeded()
+            window.display()
+        }
+
+        // 複数ディスプレイで表示がずれないよう、描画が済んでからまとめて出す。
+        for window in windows {
             window.orderFrontRegardless()
         }
 
         NSApp.activate(ignoringOtherApps: true)
 
         // マウスカーソルのあるディスプレイのウィンドウをキーにして Esc を受け取れるようにする。
+        // すでに前面に出しているので、再度 order させない makeKey を使う。
         let mouseLocation = NSEvent.mouseLocation
         let keyWindow = windows.first { $0.frame.contains(mouseLocation) } ?? windows.first
-        keyWindow?.makeKeyAndOrderFront(nil)
+        keyWindow?.makeKey()
         keyWindow?.makeFirstResponder(keyWindow?.overlayView)
 
         if mode == .window {
