@@ -101,15 +101,9 @@ final class CaptureCoordinator {
         }
 
         // ウィンドウを撮った場合、四隅には背景が写り込んでいる。
-        // macOS のウィンドウの角丸に合わせてくり抜く。
-        if selection.isWindow {
+        if let windowID = selection.windowID {
             let scale = snapshots.first { $0.frame.intersects(selection.rect) }?.scale ?? 2
-            if let masked = ImageMask.roundedCorners(
-                image,
-                radius: ImageMask.windowCornerRadius * scale
-            ) {
-                image = masked
-            }
+            image = await maskToWindowShape(image, windowID: windowID, scale: scale)
         }
 
         lastCapturedImage = image
@@ -156,6 +150,24 @@ final class CaptureCoordinator {
         } catch {
             AlertPresenter.showError(error)
         }
+    }
+
+    /// ウィンドウの実際の形で切り抜く。
+    /// 形が取れなければ、OS に応じた角丸の近似にフォールバックする。
+    func maskToWindowShape(
+        _ image: CGImage,
+        windowID: CGWindowID,
+        scale: CGFloat
+    ) async -> CGImage {
+        let pixelSize = CGSize(width: image.width, height: image.height)
+
+        if let mask = await captureService.windowShapeMask(windowID: windowID, pixelSize: pixelSize),
+           let masked = ImageMask.applying(alphaMask: mask, to: image) {
+            return masked
+        }
+
+        let radius = ImageMask.fallbackWindowCornerRadius * scale
+        return ImageMask.roundedCorners(image, radius: radius) ?? image
     }
 
     private func copyOrReportFailure(_ image: CGImage) {

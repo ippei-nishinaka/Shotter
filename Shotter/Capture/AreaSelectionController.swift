@@ -4,8 +4,10 @@ import AppKit
 struct SelectionResult {
     /// AppKit グローバル座標。
     let rect: CGRect
-    /// ウィンドウを選んで撮ったか。
-    let isWindow: Bool
+    /// ウィンドウを選んで撮った場合、その ID。角丸のマスクを取るのに使う。
+    let windowID: CGWindowID?
+
+    var isWindow: Bool { windowID != nil }
 }
 
 /// 選択の仕方。
@@ -89,7 +91,7 @@ final class AreaSelectionController: NSObject, SelectionOverlayViewDelegate {
     }
 
     func overlayView(_ view: SelectionOverlayView, didFinishSelection rect: CGRect) {
-        finish(with: SelectionResult(rect: rect, isWindow: false))
+        finish(with: SelectionResult(rect: rect, windowID: nil))
     }
 
     func overlayViewDidCancel(_ view: SelectionOverlayView) {
@@ -102,8 +104,10 @@ final class AreaSelectionController: NSObject, SelectionOverlayViewDelegate {
     }
 
     func overlayViewDidConfirmHover(_ view: SelectionOverlayView) {
-        guard mode == .window, let rect = view.globalSelection else { return }
-        finish(with: SelectionResult(rect: rect, isWindow: true))
+        guard mode == .window, let rect = view.globalSelection,
+              let hovered = candidateWindows.first(where: { $0.frame == rect })
+        else { return }
+        finish(with: SelectionResult(rect: rect, windowID: hovered.windowID))
     }
 
     /// Space が押されたら、カーソル下のウィンドウをその場で撮る。
@@ -114,7 +118,7 @@ final class AreaSelectionController: NSObject, SelectionOverlayViewDelegate {
             NSSound.beep()
             return
         }
-        finish(with: SelectionResult(rect: hovered.frame, isWindow: true))
+        finish(with: SelectionResult(rect: hovered.frame, windowID: hovered.windowID))
     }
 
     /// カーソルの下にある一番手前のウィンドウを選択状態にする。

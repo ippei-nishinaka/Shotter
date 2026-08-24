@@ -87,6 +87,46 @@ final class ScreenCaptureService {
         return snapshots
     }
 
+    /// ウィンドウの形（角丸を含む）をアルファ付きで取得する。
+    ///
+    /// `SCContentFilter(desktopIndependentWindow:)` はウィンドウ単体を
+    /// **背景が透明な状態**で返す。その透明度をマスクとして使えば、
+    /// 角丸の半径を推測せずに正確な形で切り抜ける。
+    ///
+    /// - Returns: 取得できなければ nil（呼び出し側で角丸の近似にフォールバックする）。
+    func windowShapeMask(windowID: CGWindowID, pixelSize: CGSize) async -> CGImage? {
+        guard #available(macOS 14.0, *) else { return nil }
+        guard pixelSize.width >= 1, pixelSize.height >= 1 else { return nil }
+
+        do {
+            let content = try await SCShareableContent.excludingDesktopWindows(
+                false,
+                onScreenWindowsOnly: true
+            )
+            guard let window = content.windows.first(where: { $0.windowID == windowID }) else {
+                return nil
+            }
+
+            let filter = SCContentFilter(desktopIndependentWindow: window)
+            let configuration = SCStreamConfiguration()
+            configuration.width = Int(pixelSize.width)
+            configuration.height = Int(pixelSize.height)
+            configuration.showsCursor = false
+            configuration.pixelFormat = kCVPixelFormatType_32BGRA
+            // 影を含めると形が変わってしまうので除外する。
+            configuration.ignoreShadowsSingleWindow = true
+            configuration.shouldBeOpaque = false
+            configuration.captureResolution = .best
+
+            return try await SCScreenshotManager.captureImage(
+                contentFilter: filter,
+                configuration: configuration
+            )
+        } catch {
+            return nil
+        }
+    }
+
     // MARK: - Private
 
     private func captureFullDisplay(_ display: SCDisplay, scale: CGFloat) async throws -> CGImage {

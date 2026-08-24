@@ -2,6 +2,7 @@ import AppKit
 
 /// 画面に出ているウィンドウ 1 つ分の情報。`frame` は AppKit グローバル座標。
 struct CapturedWindow {
+    let windowID: CGWindowID
     let frame: CGRect
     let ownerName: String
 }
@@ -29,6 +30,7 @@ enum WindowLister {
             // レイヤー 0 が通常のアプリのウィンドウ。メニューバーや Dock は別レイヤー。
             guard (entry[kCGWindowLayer as String] as? Int) == 0,
                   (entry[kCGWindowOwnerPID as String] as? Int) != ownPID,
+                  let windowID = (entry[kCGWindowNumber as String] as? NSNumber)?.uint32Value,
                   let boundsDict = entry[kCGWindowBounds as String] as? [String: Any],
                   let cgBounds = CGRect(dictionaryRepresentation: boundsDict as CFDictionary),
                   cgBounds.width >= minimumSize, cgBounds.height >= minimumSize
@@ -36,7 +38,11 @@ enum WindowLister {
 
             let ownerName = entry[kCGWindowOwnerName as String] as? String ?? "ウィンドウ"
             result.append(
-                CapturedWindow(frame: appKitFrame(fromCG: cgBounds), ownerName: ownerName)
+                CapturedWindow(
+                    windowID: windowID,
+                    frame: appKitFrame(fromCG: cgBounds),
+                    ownerName: ownerName
+                )
             )
         }
 

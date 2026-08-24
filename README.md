@@ -85,7 +85,9 @@ export SHOTTER_NOTARY_PROFILE="shotter"   # xcrun notarytool store-credentials �
 | `--debug-ocr` | 文字を描いたテスト画像を OCR して結果を出力する |
 | `--debug-overlay-frames` | 範囲選択オーバーレイの位置とアニメーション設定を出力する |
 | `--debug-capture-timing <path>` | 暗転が出るまでの所要時間を計測してファイルへ書き出す |
-| `--debug-rounded <path>` | ウィンドウ角丸マスクの結果を PNG に書き出す |
+| `--debug-rounded <path>` | 角丸マスク（フォールバック経路）の結果を PNG に書き出す |
+| `--debug-corner-probe <path>` | 実際のウィンドウの角丸半径をピクセル単位で実測する |
+| `--debug-window-capture <path>` | ウィンドウキャプチャの結果の角を拡大して書き出す |
 | `--debug-dump-canvas <path>` | 表示内容を PNG に書き出して終了する |
 
 ```
@@ -150,8 +152,10 @@ Shotter は macOS の「画面収録」の許可が必要です。初回起動�
 ウィンドウキャプチャ（⌃⇧W）では、カーソルの下のウィンドウが明るく表示され、
 クリックまたは Space で撮影します。
 
-ウィンドウを撮ったときは、macOS のウィンドウの角丸に合わせて**四隅を透明にくり抜きます**。
-四隅に背景が写り込まないので、そのまま資料に貼れます。
+ウィンドウを撮ったときは**四隅を透明にくり抜く**ので、角に背景が写り込みません。
+`SCContentFilter(desktopIndependentWindow:)` が返すウィンドウのアルファをそのままマスクに使うため、
+角丸の半径を決め打ちする必要がなく、OS のバージョンが変わっても正しい形になります
+（macOS 26 で角丸が 10pt から約 20pt に変わっています）。
 
 ## 文字認識（OCR）
 

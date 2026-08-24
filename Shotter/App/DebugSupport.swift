@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import ScreenCaptureKit
 
 /// 開発中の動作確認用。`--debug-editor` を付けて起動すると、
 /// 画面収録の権限なしでテスト画像の注釈エディタを開く。
@@ -246,7 +247,7 @@ enum DebugSupport {
         let scale: CGFloat = 2
         guard let masked = ImageMask.roundedCorners(
             image,
-            radius: ImageMask.windowCornerRadius * scale
+            radius: ImageMask.fallbackWindowCornerRadius * scale
         ) else {
             log("マスクに失敗しました")
             NSApp.terminate(nil)
@@ -279,6 +280,280 @@ enum DebugSupport {
             }
         }
         NSApp.terminate(nil)
+    }
+
+    /// `--debug-corner-probe <path>` で、実際のウィンドウの角丸半径を実測する。
+    ///
+    /// ScreenCaptureKit の desktopIndependentWindow フィルタはウィンドウを
+    /// **アルファ付き**で返す（角の外側が透明になる）。最上段の行を走査して
+    /// 最初に不透明になる x 座標を探すと、それがそのまま角丸の半径になる。
+    @MainActor
+    static func probeWindowCornerRadiusAndQuit() {
+        let outputPath: String? = {
+            guard let index = CommandLine.arguments.firstIndex(of: "--debug-corner-probe"),
+                  CommandLine.arguments.indices.contains(index + 1)
+            else { return nil }
+            return CommandLine.arguments[index + 1]
+        }()
+
+        var report: [String] = []
+        func record(_ line: String) {
+            report.append(line)
+            log(line)
+            if let outputPath {
+                try? report.joined(separator: "\n").write(
+                    toFile: outputPath, atomically: true, encoding: .utf8
+                )
+            }
+        }
+
+        Task { @MainActor in
+            defer { NSApp.terminate(nil) }
+
+            guard CGPreflightScreenCaptureAccess() else {
+                record("画面収録が未許可のため計測できません")
+                return
+            }
+
+            do {
+                let content = try await SCShareableContent.excludingDesktopWindows(
+                    false, onScreenWindowsOnly: true
+                )
+                let ownPID = ProcessInfo.processInfo.processIdentifier
+
+                // 一番大きいウィンドウを対象にする（角がはっきり見えるように）。
+                let candidates = content.windows.filter {
+                    $0.isOnScreen
+                        && $0.windowLayer == 0
+                        && $0.owningApplication?.processID != ownPID
+                        && $0.frame.width > 200 && $0.frame.height > 200
+                }
+                guard let target = candidates.max(by: {
+                    $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height
+                }) else {
+                    record("対象になるウィンドウが見つかりませんでした")
+                    return
+                }
+
+                let appName = target.owningApplication?.applicationName ?? "?"
+                record("対象: \(appName)  frame=\(target.frame)")
+
+                let filter = SCContentFilter(desktopIndependentWindow: target)
+                let configuration = SCStreamConfiguration()
+                var scale: CGFloat = 2
+
+                if #available(macOS 14.0, *) {
+                    scale = CGFloat(filter.pointPixelScale)
+                    configuration.width = Int(filter.contentRect.width * scale)
+                    configuration.height = Int(filter.contentRect.height * scale)
+                    configuration.ignoreShadowsSingleWindow = true
+                    configuration.shouldBeOpaque = false
+                    configuration.captureResolution = .best
+                } else {
+                    configuration.width = Int(target.frame.width * scale)
+                    configuration.height = Int(target.frame.height * scale)
+                }
+                configuration.showsCursor = false
+                configuration.pixelFormat = kCVPixelFormatType_32BGRA
+
+                guard #available(macOS 14.0, *) else {
+                    record("この計測は macOS 14 以降が必要です")
+                    return
+                }
+                let image = try await SCScreenshotManager.captureImage(
+                    contentFilter: filter, configuration: configuration
+                )
+                record("撮影サイズ: \(image.width) x \(image.height) px  (scale=\(scale))")
+
+                guard let analysis = analyzeCorner(of: image) else {
+                    record("ピクセルを解析できませんでした")
+                    return
+                }
+                record("不透明領域の左上: (\(analysis.originX), \(analysis.originY))")
+                record("最上段で最初に不透明になる x: \(analysis.firstOpaqueX) px")
+                record("")
+                record("複数の行で交差検証（r = (x+y) + √(2xy) で逆算）:")
+                for estimate in analysis.estimates {
+                    record(String(
+                        format: "  y=%3d px → x=%3d px → r ≒ %.1f px = %.1f pt",
+                        estimate.y, estimate.x, estimate.radius, estimate.radius / scale
+                    ))
+                }
+                let median = analysis.medianRadius
+                record("")
+                record(String(format: "→ 角丸半径 ≒ %.1f px = %.1f pt", median, median / scale))
+            } catch {
+                record("失敗: \(error)")
+            }
+        }
+    }
+
+    private struct CornerAnalysis {
+        struct Estimate {
+            let y: Int
+            let x: Int
+            let radius: CGFloat
+        }
+
+        let originX: Int
+        let originY: Int
+        let firstOpaqueX: Int
+        let radiusPixels: Int
+        let estimates: [Estimate]
+
+        var medianRadius: CGFloat {
+            let sorted = estimates.map(\.radius).sorted()
+            guard !sorted.isEmpty else { return CGFloat(radiusPixels) }
+            return sorted[sorted.count / 2]
+        }
+    }
+
+    /// アルファ付き画像の左上の角を調べる。
+    private static func analyzeCorner(of image: CGImage) -> CornerAnalysis? {
+        guard let data = image.dataProvider?.data,
+              let bytes = CFDataGetBytePtr(data)
+        else { return nil }
+
+        let width = image.width
+        let height = image.height
+        let bytesPerRow = image.bytesPerRow
+        let bytesPerPixel = image.bitsPerPixel / 8
+        guard bytesPerPixel >= 4 else { return nil }
+
+        // premultipliedFirst(BGRA) なら alpha は 4 バイト目、last なら同じく末尾。
+        let alphaInfo = image.alphaInfo
+        let alphaOffset = (alphaInfo == .premultipliedFirst || alphaInfo == .first) ? 0 : bytesPerPixel - 1
+
+        func alpha(_ x: Int, _ y: Int) -> UInt8 {
+            bytes[y * bytesPerRow + x * bytesPerPixel + alphaOffset]
+        }
+
+        // 影の余白があるかもしれないので、不透明領域の左上を先に探す。
+        var originY = 0
+        while originY < height {
+            if (0..<width).contains(where: { alpha($0, originY) > 128 }) { break }
+            originY += 1
+        }
+        guard originY < height else { return nil }
+
+        var originX = 0
+        while originX < width {
+            if (originY..<min(originY + 64, height)).contains(where: { alpha(originX, $0) > 128 }) { break }
+            originX += 1
+        }
+
+        // 最上段で最初に不透明になる x。これが角丸の半径にあたる。
+        var firstOpaqueX = originX
+        while firstOpaqueX < width, alpha(firstOpaqueX, originY) <= 128 {
+            firstOpaqueX += 1
+        }
+
+        // 最上段だけだとアンチエイリアスの影響を受けやすいので、
+        // 数行分を測って r を逆算し、中央値を採る。
+        var estimates: [CornerAnalysis.Estimate] = []
+        for offset in [4, 8, 12, 16, 20, 24] {
+            let row = originY + offset
+            guard row < height else { continue }
+
+            var x = originX
+            while x < width, alpha(x, row) <= 128 { x += 1 }
+
+            let dx = CGFloat(x - originX)
+            let dy = CGFloat(offset)
+            guard dx > 0 else { continue }
+
+            // (r - x)^2 = 2ry - y^2 を r について解いた形。
+            let radius = (dx + dy) + (2 * dx * dy).squareRoot()
+            estimates.append(CornerAnalysis.Estimate(y: offset, x: x - originX, radius: radius))
+        }
+
+        return CornerAnalysis(
+            originX: originX,
+            originY: originY,
+            firstOpaqueX: firstOpaqueX,
+            radiusPixels: firstOpaqueX - originX,
+            estimates: estimates
+        )
+    }
+
+    /// `--debug-window-capture <path>` で、ウィンドウキャプチャの経路を
+    /// そのまま通した結果を PNG に書き出す。透明部分が分かるよう市松模様に重ねる。
+    @MainActor
+    static func dumpWindowCaptureAndQuit() {
+        guard let index = CommandLine.arguments.firstIndex(of: "--debug-window-capture"),
+              CommandLine.arguments.indices.contains(index + 1)
+        else { NSApp.terminate(nil); return }
+        let path = CommandLine.arguments[index + 1]
+
+        Task { @MainActor in
+            defer { NSApp.terminate(nil) }
+
+            guard CGPreflightScreenCaptureAccess() else {
+                log("画面収録が未許可です")
+                return
+            }
+
+            do {
+                let snapshots = try await ScreenCaptureService().captureAllDisplays()
+                let windows = WindowLister.onScreenWindows()
+                guard let target = windows.max(by: {
+                    $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height
+                }) else {
+                    log("ウィンドウが見つかりません")
+                    return
+                }
+                log("対象: \(target.ownerName)  frame=\(target.frame)")
+
+                guard let cropped = SnapshotCompositor.crop(snapshots, to: target.frame) else {
+                    log("切り出しに失敗しました")
+                    return
+                }
+
+                let scale = snapshots.first { $0.frame.intersects(target.frame) }?.scale ?? 2
+                let masked = await CaptureCoordinator.shared.maskToWindowShape(
+                    cropped, windowID: target.windowID, scale: scale
+                )
+                log("結果: \(masked.width) x \(masked.height) px")
+
+                // 角の部分だけを切り出して拡大し、市松模様に重ねる。
+                let corner = 120
+                guard let topLeft = masked.cropping(
+                    to: CGRect(x: 0, y: 0, width: corner, height: corner)
+                ) else { return }
+
+                let scaleUp = 3
+                let size = corner * scaleUp
+                guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+                      let context = CGContext(
+                        data: nil, width: size, height: size,
+                        bitsPerComponent: 8, bytesPerRow: 0, space: colorSpace,
+                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+                      )
+                else { return }
+
+                let square = 24
+                for y in stride(from: 0, to: size, by: square) {
+                    for x in stride(from: 0, to: size, by: square) {
+                        let dark = ((x / square) + (y / square)) % 2 == 0
+                        context.setFillColor(CGColor(
+                            srgbRed: dark ? 1 : 0.15, green: dark ? 0.15 : 0.7, blue: 0.35, alpha: 1
+                        ))
+                        context.fill(CGRect(x: x, y: y, width: square, height: square))
+                    }
+                }
+                context.interpolationQuality = .none
+                context.draw(topLeft, in: CGRect(x: 0, y: 0, width: size, height: size))
+
+                if let composited = context.makeImage(),
+                   let data = NSBitmapImageRep(cgImage: composited)
+                    .representation(using: .png, properties: [:]) {
+                    try? data.write(to: URL(fileURLWithPath: path))
+                    log("左上の角を 3 倍に拡大して書き出しました: \(path)")
+                }
+            } catch {
+                log("失敗: \(error)")
+            }
+        }
     }
 
     /// `--debug-windows` でウィンドウ一覧を標準エラーへ出して終了する。

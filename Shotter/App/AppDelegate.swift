@@ -37,6 +37,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DebugSupport.runOCRCheckAndQuit()
             return
         }
+        if CommandLine.arguments.contains("--debug-window-capture") {
+            DebugSupport.dumpWindowCaptureAndQuit()
+            return
+        }
+        if CommandLine.arguments.contains("--debug-corner-probe") {
+            DebugSupport.probeWindowCornerRadiusAndQuit()
+            return
+        }
         if CommandLine.arguments.contains("--debug-rounded") {
             DebugSupport.dumpRoundedCornerSampleAndQuit()
             return
