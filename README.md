@@ -23,8 +23,25 @@ macOS 用のメニューバー常駐型スクリーンショット注釈アプ�
 - macOS 13 (Ventura) 以降
 - ビルドには Xcode か Command Line Tools が必要（**Xcode がなくてもビルドできます**）
 
-配布用のバイナリは用意していません。下記の手順で自分でビルドしてください。
-Apple の Developer ID による署名・公証はしていないため、ビルドした本人の Mac でだけ動く想定です。
+Apple Silicon / Intel 両対応（universal binary）です。
+
+## インストール
+
+[Releases](https://github.com/ippei-nishinaka/Shotter/releases) から `Shotter-*.zip` をダウンロードして、
+展開した `Shotter.app` を「アプリケーション」フォルダへ移動してください。
+
+**このアプリは Apple の公証（notarization）を受けていません。**
+そのままでは macOS に起動を止められるので、ターミナルで次を 1 回だけ実行してください。
+
+```
+xattr -dr com.apple.quarantine /Applications/Shotter.app
+```
+
+ターミナルを使いたくない場合は、一度アプリを開こうとしたあとに
+システム設定 > プライバシーとセキュリティ の下の方に出る「このまま開く」を押しても同じです。
+
+> 公証には Apple Developer Program（年 99 ドル）が必要なため、現状は見送っています。
+> 中身が気になる場合は、下記の手順でソースから自分でビルドしてください。
 
 ## ビルドと起動
 
@@ -37,7 +54,19 @@ Apple の Developer ID による署名・公証はしていないため、ビル
 | `./build.sh` | デバッグビルド |
 | `./build.sh release` | リリースビルド（最適化あり） |
 | `./build.sh run` | ビルドして起動 |
-| `./build.sh clean` | `build/` を削除 |
+| `./build.sh dist` | 配布用の universal binary を作って `dist/` に zip で出力 |
+| `./build.sh clean` | `build/` と `dist/` を削除 |
+
+### 公証まで行う場合
+
+Apple Developer Program に入っている場合は、環境変数を渡すと `dist` が署名・公証・
+チケットの添付までまとめて実行します。
+
+```
+export SHOTTER_DEVELOPER_ID="Developer ID Application: Your Name (TEAMID)"
+export SHOTTER_NOTARY_PROFILE="shotter"   # xcrun notarytool store-credentials で作成
+./build.sh dist
+```
 
 デバッグビルドには、画面収録の権限なしで各画面を確認できる起動オプションがあります。
 
@@ -183,6 +212,15 @@ Shift を押しながらドラッグすると、線・矢印は 45 度刻み、�
 ## ライセンス
 
 [MIT License](LICENSE)
+
+## リリースの作り方（メンテナ向け）
+
+タグを打つと GitHub Actions が universal binary をビルドし、
+zip を添付した Release を自動で作成します。
+
+```
+git tag v0.1.0 && git push origin v0.1.0
+```
 
 ## 補足
 

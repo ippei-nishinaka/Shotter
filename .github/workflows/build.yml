@@ -1,0 +1,52 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: ビルドが通ることを確認
+        run: ./build.sh release
+
+      - name: 配布用パッケージを作成（タグを打ったときだけ）
+        if: startsWith(github.ref, 'refs/tags/')
+        run: ./build.sh dist
+
+      - name: リリースを作成（タグを打ったときだけ）
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > /tmp/notes.md <<'NOTES'
+          ## インストール
+
+          1. 下の `Shotter-*.zip` をダウンロードして展開し、`Shotter.app` を「アプリケーション」フォルダへ移動します
+          2. **このアプリは Apple の公証を受けていないため、そのままでは開けません。**
+             ターミナルで次を実行してください（1 回だけ）
+
+             ```
+             xattr -dr com.apple.quarantine /Applications/Shotter.app
+             ```
+
+             ターミナルを使いたくない場合は、一度アプリを開こうとしたあと
+             システム設定 > プライバシーとセキュリティ の下の方に出る「このまま開く」を押してください
+          3. 起動すると案内ウィンドウが出るので、「画面収録」の許可を与えて再起動します
+
+          Apple Silicon / Intel 両対応（universal binary）、macOS 13 以降で動作します。
+          NOTES
+          gh release create "$GITHUB_REF_NAME" dist/*.zip \
+            --title "Shotter $GITHUB_REF_NAME" \
+            --notes-file /tmp/notes.md \
+            --generate-notes
