@@ -33,9 +33,7 @@ enum AnnotationFactory {
             return HighlightAnnotation(start: point, end: point, style: style)
 
         case .pixelate:
-            let annotation = PixelateAnnotation(start: point, end: point, style: style)
-            annotation.mode = store.pixelateMode
-            return annotation
+            return PixelateAnnotation(start: point, end: point, style: style)
 
         case .spotlight:
             return SpotlightAnnotation(start: point, end: point, style: style)

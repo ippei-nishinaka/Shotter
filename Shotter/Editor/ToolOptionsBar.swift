@@ -8,9 +8,15 @@ struct ToolOptionsBar: View {
 
     @ObservedObject var store: AnnotationStore
 
-    /// 出すものが何も無ければ行ごと隠す。
-    var hasContent: Bool {
-        options(for: store.tool) != .none || store.hasShadow || store.hasRoundedCorners
+    /// 出すものが何も無いときに見せる説明。行自体は常に出しておく。
+    private var placeholder: String {
+        switch store.tool {
+        case .select:   return "注釈をクリックすると、色や太さを変えられます"
+        case .ellipse:  return "円に固有のオプションはありません"
+        case .freehand: return "フリーハンドに固有のオプションはありません"
+        case .counter:  return "大きさはツールバーのスライダーで変えられます"
+        default:        return ""
+        }
     }
 
     var body: some View {
@@ -122,7 +128,9 @@ struct ToolOptionsBar: View {
             )
 
         case .none:
-            EmptyView()
+            Text(placeholder)
+                .font(.system(size: 11))
+                .foregroundStyle(.tertiary)
         }
     }
 

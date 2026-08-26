@@ -25,7 +25,7 @@ final class PixelateAnnotation: TwoPointAnnotation {
         }
     }
 
-    var mode: Mode = .pixelate
+    private var mode: Mode { style.pixelateMode }
 
     override var constraintMode: ConstraintMode { .square }
 
@@ -54,7 +54,6 @@ final class PixelateAnnotation: TwoPointAnnotation {
     override func copy() -> Annotation {
         let duplicate = PixelateAnnotation(start: start, end: end, style: style)
         duplicate.id = id
-        duplicate.mode = mode
         return duplicate
     }
 

@@ -27,7 +27,8 @@ final class AnnotationCanvasView: NSView {
 
     override var acceptsFirstResponder: Bool { true }
 
-    private let canvasInset: CGFloat = 16
+    /// 影がはみ出しても切れないよう、キャンバスの周りに余裕を持たせる。
+    private let canvasInset: CGFloat = 30
 
     /// ドラッグ中の未確定の注釈。マウスアップで store へ確定させる。
     private var draft: (any DragCreatableAnnotation)?
@@ -76,29 +77,29 @@ final class AnnotationCanvasView: NSView {
             height: max(bounds.height - canvasInset * 2, 1)
         )
 
-        // 影を付けるときは余白の分だけ全体が大きくなるので、それも収まるように縮める。
-        let output = store.outputSize
-
-        // 等倍（＝撮影時のポイントサイズ）を超えて拡大はしない。
+        // レイアウトは画像そのものの大きさだけで決める。
+        // 影の余白まで含めると、影を切り替えたり強さを変えたりするたびに
+        // 表示倍率が変わって、作業中の画像が動いてしまうため。
+        // 影はキャンバスの余白へはみ出して描かれる。
         let naturalScale = store.pointSize.width > 0
             ? store.pointSize.width / store.imageSize.width
             : 1
         let fitScale = min(
-            available.width / output.width,
-            available.height / output.height
+            available.width / store.imageSize.width,
+            available.height / store.imageSize.height
         )
         displayScale = min(fitScale, naturalScale)
 
-        let outputRect = CGRect(
-            x: ((bounds.width - output.width * displayScale) / 2).rounded(),
-            y: ((bounds.height - output.height * displayScale) / 2).rounded(),
-            width: (output.width * displayScale).rounded(),
-            height: (output.height * displayScale).rounded()
+        let size = CGSize(
+            width: (store.imageSize.width * displayScale).rounded(),
+            height: (store.imageSize.height * displayScale).rounded()
         )
-
-        // 画像そのものの位置は、余白の内側。注釈の座標変換はこちらを基準にする。
-        let padding = store.shadowPadding * displayScale
-        imageRect = outputRect.insetBy(dx: padding, dy: padding)
+        imageRect = CGRect(
+            x: ((bounds.width - size.width) / 2).rounded(),
+            y: ((bounds.height - size.height) / 2).rounded(),
+            width: size.width,
+            height: size.height
+        )
     }
 
     // MARK: - 描画
@@ -373,6 +374,36 @@ extension AnnotationCanvasView: NSTextViewDelegate {
             width: max(annotation.maxWidth * displayScale, lineHeight * 3),
             height: lineHeight
         )
+    }
+
+    /// 入力中にツールバーやオプション行を触ったとき、その場の見た目へ反映する。
+    /// テキストビューは生成時のフォントを持ったままなので、明示的に更新が要る。
+    func refreshTextEditingStyle() {
+        guard let textView = textEditor, let annotation = editingText, let store else { return }
+
+        annotation.style.color = store.color
+        annotation.style.fontSize = store.fontSize
+        annotation.style.text = store.textTraits
+
+        textView.font = TextAnnotation.font(
+            ofSize: annotation.style.fontSize * displayScale,
+            traits: annotation.style.text
+        )
+        textView.textColor = annotation.style.color
+        textView.insertionPointColor = annotation.style.color
+
+        var attributes: [NSAttributedString.Key: Any] = [:]
+        attributes[.underlineStyle] = annotation.style.text.isUnderlined
+            ? NSUnderlineStyle.single.rawValue : 0
+        attributes[.strikethroughStyle] = annotation.style.text.isStrikethrough
+            ? NSUnderlineStyle.single.rawValue : 0
+        textView.typingAttributes = textView.typingAttributes.merging(attributes) { _, new in new }
+        textView.textStorage?.addAttributes(
+            attributes,
+            range: NSRange(location: 0, length: textView.string.count)
+        )
+
+        textDidChange(Notification(name: NSText.didChangeNotification))
     }
 
     // MARK: NSTextViewDelegate

@@ -14,6 +14,7 @@ struct AnnotationCanvasRepresentable: NSViewRepresentable {
 
     func updateNSView(_ nsView: AnnotationCanvasView, context: Context) {
         nsView.store = store
+        nsView.refreshTextEditingStyle()
         nsView.needsDisplay = true
     }
 }
@@ -30,11 +31,9 @@ struct EditorView: View {
             EditorToolbarView(store: store, onCopy: onCopy, onSave: onSave)
             Divider()
 
-            let options = ToolOptionsBar(store: store)
-            if options.hasContent {
-                options
-                Divider()
-            }
+            // 出す内容が無くても行ごと消さない。消えると作業領域の高さが変わってしまう。
+            ToolOptionsBar(store: store)
+            Divider()
 
             AnnotationCanvasRepresentable(store: store)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)

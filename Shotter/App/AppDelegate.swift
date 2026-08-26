@@ -50,6 +50,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DebugSupport.dumpHistoryWindowAndQuit()
             return
         }
+        if CommandLine.arguments.contains("--debug-apply-check") {
+            DebugSupport.runApplyCheckAndQuit()
+            return
+        }
         if CommandLine.arguments.contains("--debug-history") {
             DebugSupport.testHistoryPurgeAndQuit()
             return

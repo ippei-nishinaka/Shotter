@@ -18,6 +18,9 @@ struct AnnotationStyle {
     /// テキストの書体設定。
     var text = TextTraits()
 
+    /// モザイクか、ぼかしか。
+    var pixelateMode: PixelateAnnotation.Mode = .pixelate
+
     /// モザイク／ぼかしの強さの倍率。
     var pixelateIntensity: CGFloat = 1
 

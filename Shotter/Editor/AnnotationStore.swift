@@ -43,7 +43,9 @@ final class AnnotationStore: ObservableObject {
     private var isSyncingStyle = false
 
     /// モザイクツールの種類（モザイク／ぼかし）。
-    @Published var pixelateMode: PixelateAnnotation.Mode = .pixelate
+    @Published var pixelateMode: PixelateAnnotation.Mode = .pixelate {
+        didSet { applyOptionsToSelection() }
+    }
 
     // MARK: - ツールごとのオプション
 
@@ -181,6 +183,7 @@ final class AnnotationStore: ObservableObject {
         style.arrowHead = arrowHeadStyle
         style.dash = lineDashStyle
         style.text = textTraits
+        style.pixelateMode = pixelateMode
         style.pixelateIntensity = pixelateIntensity
         style.cornerRadius = roundsCorners(for: tool) ? shapeCornerRadius : 0
         return style
@@ -246,6 +249,7 @@ final class AnnotationStore: ObservableObject {
         arrowHeadStyle = annotation.style.arrowHead
         lineDashStyle = annotation.style.dash
         textTraits = annotation.style.text
+        pixelateMode = annotation.style.pixelateMode
         pixelateIntensity = annotation.style.pixelateIntensity
         isSyncingStyle = false
 
@@ -274,6 +278,7 @@ final class AnnotationStore: ObservableObject {
         target.style.arrowHead = arrowHeadStyle
         target.style.dash = lineDashStyle
         target.style.text = textTraits
+        target.style.pixelateMode = pixelateMode
         target.style.pixelateIntensity = pixelateIntensity
         target.style.cornerRadius = roundsCorners(forAnnotation: target) ? shapeCornerRadius : 0
         didChange()

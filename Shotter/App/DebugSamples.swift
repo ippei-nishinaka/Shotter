@@ -218,23 +218,23 @@ enum DebugSamples {
 
         // モザイク
         cell = nextCell()
-        let mosaic = PixelateAnnotation(
+        var mosaicStyle = style(.systemRed)
+        mosaicStyle.pixelateMode = .pixelate
+        store.add(PixelateAnnotation(
             start: cell.origin,
             end: CGPoint(x: cell.maxX, y: cell.maxY),
-            style: style(.systemRed)
-        )
-        mosaic.mode = .pixelate
-        store.add(mosaic)
+            style: mosaicStyle
+        ))
 
         // ぼかし
         cell = nextCell()
-        let blur = PixelateAnnotation(
+        var blurStyle = style(.systemRed)
+        blurStyle.pixelateMode = .blur
+        store.add(PixelateAnnotation(
             start: cell.origin,
             end: CGPoint(x: cell.maxX, y: cell.maxY),
-            style: style(.systemRed)
-        )
-        blur.mode = .blur
-        store.add(blur)
+            style: blurStyle
+        ))
 
         // 連番（自動採番の確認のため 3 つ並べる）
         cell = nextCell()

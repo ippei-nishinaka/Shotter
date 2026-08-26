@@ -711,6 +711,69 @@ enum DebugSupport {
         NSApp.terminate(nil)
     }
 
+    /// `--debug-apply-check` で、オプションの変更が「直前に描いた注釈」へ
+    /// 実際に反映されるかを確かめる。
+    @MainActor
+    static func runApplyCheckAndQuit() {
+        guard let image = solidImage(width: 800, height: 500) else {
+            NSApp.terminate(nil)
+            return
+        }
+        let store = AnnotationStore(image: image, pointSize: CGSize(width: 400, height: 250))
+        var failures = 0
+
+        func check(_ label: String, _ passed: Bool, _ detail: String) {
+            log("\(passed ? "✓" : "✗") \(label): \(detail)")
+            if !passed { failures += 1 }
+        }
+
+        // テキスト: サイズと太字
+        store.tool = .text
+        let text = TextAnnotation(
+            origin: .zero, text: "あ", style: store.currentStyle, maxWidth: 300
+        )
+        store.add(text)
+
+        store.fontSize = 64
+        check("テキストのサイズ", text.style.fontSize == 64, "style.fontSize=\(text.style.fontSize)")
+
+        store.textTraits.isBold = true
+        check("テキストの太字", text.style.text.isBold, "isBold=\(text.style.text.isBold)")
+
+        let font = text.attributes[.font] as? NSFont
+        check(
+            "実際のフォント",
+            font?.pointSize == 64,
+            "pointSize=\(font?.pointSize ?? -1) name=\(font?.fontName ?? "-")"
+        )
+
+        // モザイク: 種類と強さ
+        store.tool = .pixelate
+        let pixelate = PixelateAnnotation(
+            start: .zero, end: CGPoint(x: 100, y: 100), style: store.currentStyle
+        )
+        store.add(pixelate)
+
+        store.pixelateIntensity = 2.5
+        check("モザイクの強さ", pixelate.style.pixelateIntensity == 2.5,
+              "intensity=\(pixelate.style.pixelateIntensity)")
+
+        store.pixelateMode = .blur
+        check("モザイクの種類", pixelate.style.pixelateMode == .blur,
+              "mode=\(pixelate.style.pixelateMode.rawValue)")
+
+        // 色
+        store.tool = .arrow
+        let arrow = ArrowAnnotation(start: .zero, end: CGPoint(x: 50, y: 50), style: store.currentStyle)
+        store.add(arrow)
+        store.color = .systemGreen
+        check("色", arrow.style.color == .systemGreen, "color=\(arrow.style.color)")
+
+        log("")
+        log(failures == 0 ? "→ すべて反映されています" : "→ \(failures) 件が反映されていません")
+        NSApp.terminate(nil)
+    }
+
     /// `--debug-windows` でウィンドウ一覧を標準エラーへ出して終了する。
     @MainActor
     static func dumpWindowListAndQuit() {
