@@ -29,9 +29,6 @@ final class PixelateAnnotation: TwoPointAnnotation {
 
     override var constraintMode: ConstraintMode { .square }
 
-    /// 効果の強さ。モザイクのブロックサイズ／ぼかし半径の倍率として使う。
-    var intensity: CGFloat = 1
-
     private static let ciContext = CIContext(options: [.useSoftwareRenderer: false])
 
     private var cachedImage: CGImage?
@@ -58,7 +55,6 @@ final class PixelateAnnotation: TwoPointAnnotation {
         let duplicate = PixelateAnnotation(start: start, end: end, style: style)
         duplicate.id = id
         duplicate.mode = mode
-        duplicate.intensity = intensity
         return duplicate
     }
 
@@ -68,7 +64,7 @@ final class PixelateAnnotation: TwoPointAnnotation {
         for target: CGRect,
         environment: AnnotationRenderEnvironment
     ) -> CGImage? {
-        let key = "\(mode.rawValue)-\(intensity)-\(target)"
+        let key = "\(mode.rawValue)-\(style.pixelateIntensity)-\(target)"
         if key == cacheKey, let cachedImage { return cachedImage }
 
         // CGImage の座標系は左上原点なので、注釈の座標をそのまま切り出しに使える。
@@ -84,7 +80,7 @@ final class PixelateAnnotation: TwoPointAnnotation {
         switch mode {
         case .pixelate:
             // ブロックサイズは領域の短辺に合わせ、小さい領域でも粒が見えるようにする。
-            let blockSize = max(min(cropRect.width, cropRect.height) / 12, 8) * intensity
+            let blockSize = max(min(cropRect.width, cropRect.height) / 12, 8) * style.pixelateIntensity
             output = input
                 .clampedToExtent()
                 .applyingFilter("CIPixellate", parameters: [
@@ -94,7 +90,7 @@ final class PixelateAnnotation: TwoPointAnnotation {
                 .cropped(to: input.extent)
 
         case .blur:
-            let radius = max(min(cropRect.width, cropRect.height) / 10, 6) * intensity
+            let radius = max(min(cropRect.width, cropRect.height) / 10, 6) * style.pixelateIntensity
             output = input
                 .clampedToExtent()
                 .applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: radius])

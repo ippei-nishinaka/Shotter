@@ -35,7 +35,7 @@ enum AnnotationRenderer {
         if store.hasShadow {
             // 元画像のアルファ（ウィンドウの角丸など）に沿って影が落ちる。
             context.saveGState()
-            ShadowStyle.apply(to: context, scale: store.pixelScale)
+            ShadowStyle.apply(to: context, scale: store.pixelScale, strength: store.shadowStrength)
             context.draw(store.renderImage, in: imageRect)
             context.restoreGState()
         } else {

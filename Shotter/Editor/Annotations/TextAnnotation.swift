@@ -18,15 +18,22 @@ final class TextAnnotation: Annotation {
         self.maxWidth = maxWidth
     }
 
-    static func font(ofSize size: CGFloat) -> NSFont {
-        NSFont.systemFont(ofSize: size, weight: .semibold)
+    static func font(ofSize size: CGFloat, traits: TextTraits = TextTraits()) -> NSFont {
+        traits.font(ofSize: size)
     }
 
     var attributes: [NSAttributedString.Key: Any] {
-        [
-            .font: Self.font(ofSize: style.fontSize),
+        var result: [NSAttributedString.Key: Any] = [
+            .font: Self.font(ofSize: style.fontSize, traits: style.text),
             .foregroundColor: style.color,
         ]
+        if style.text.isUnderlined {
+            result[.underlineStyle] = NSUnderlineStyle.single.rawValue
+        }
+        if style.text.isStrikethrough {
+            result[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
+        }
+        return result
     }
 
     var attributedText: NSAttributedString {

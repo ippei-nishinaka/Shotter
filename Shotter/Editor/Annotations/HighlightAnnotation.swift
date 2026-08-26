@@ -19,7 +19,16 @@ final class HighlightAnnotation: TwoPointAnnotation {
         // 乗算にすることで、塗りつぶしではなくマーカーを引いたような見え方になる。
         context.setBlendMode(.multiply)
         context.setFillColor(color.cgColor)
-        context.fill(target)
+
+        let radius = min(style.cornerRadius, min(target.width, target.height) / 2)
+        if radius > 0 {
+            context.addPath(
+                CGPath(roundedRect: target, cornerWidth: radius, cornerHeight: radius, transform: nil)
+            )
+            context.fillPath()
+        } else {
+            context.fill(target)
+        }
         context.restoreGState()
     }
 

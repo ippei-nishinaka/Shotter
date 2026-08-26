@@ -156,7 +156,7 @@ final class AnnotationCanvasView: NSView {
 
         if store.hasShadow {
             // 画面上の見た目を書き出し結果に合わせるため、表示倍率を掛ける。
-            ShadowStyle.apply(to: context, scale: store.pixelScale * displayScale)
+            ShadowStyle.apply(to: context, scale: store.pixelScale * displayScale, strength: store.shadowStrength)
         }
 
         context.draw(
@@ -326,7 +326,10 @@ extension AnnotationCanvasView: NSTextViewDelegate {
         textView.backgroundColor = NSColor.black.withAlphaComponent(0.25)
         textView.insertionPointColor = annotation.style.color
         textView.textColor = annotation.style.color
-        textView.font = TextAnnotation.font(ofSize: annotation.style.fontSize * displayScale)
+        textView.font = TextAnnotation.font(
+            ofSize: annotation.style.fontSize * displayScale,
+            traits: annotation.style.text
+        )
         textView.textContainerInset = .zero
         textView.textContainer?.lineFragmentPadding = 0
         textView.isVerticallyResizable = true

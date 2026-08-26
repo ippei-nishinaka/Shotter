@@ -857,6 +857,18 @@ enum DebugSupport {
         if CommandLine.arguments.contains("--debug-shadow") {
             controller.store.hasShadow = true
         }
+        if CommandLine.arguments.contains("--debug-round") {
+            controller.store.hasRoundedCorners = true
+        }
+        // --debug-tool <ツール名> でツールを選んだ状態にする。
+        if let index = CommandLine.arguments.firstIndex(of: "--debug-tool"),
+           CommandLine.arguments.indices.contains(index + 1),
+           let tool = AnnotationTool(rawValue: CommandLine.arguments[index + 1]) {
+            controller.store.tool = tool
+        }
+        if CommandLine.arguments.contains("--debug-options") {
+            DebugSamples.populateOptionVariants(controller.store)
+        }
         if CommandLine.arguments.contains("--debug-samples") {
             DebugSamples.populate(
                 controller.store,

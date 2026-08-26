@@ -10,7 +10,10 @@ final class LineAnnotation: TwoPointAnnotation {
 
         context.setStrokeColor(style.resolvedColor)
         context.setLineWidth(lineWidth)
-        context.setLineCap(.round)
+        context.setLineCap(style.dash.lineCap)
+        if let pattern = style.dash.dashPattern(lineWidth: lineWidth) {
+            context.setLineDash(phase: 0, lengths: pattern)
+        }
         context.move(to: start)
         context.addLine(to: end)
         context.strokePath()

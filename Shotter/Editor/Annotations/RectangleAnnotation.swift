@@ -5,9 +5,6 @@ final class RectangleAnnotation: TwoPointAnnotation {
 
     var isFilled = false
 
-    /// 角の丸み。0 なら直角。
-    var cornerRadius: CGFloat = 0
-
     override var constraintMode: ConstraintMode { .square }
 
     override func draw(in context: CGContext, environment: AnnotationRenderEnvironment) {
@@ -16,10 +13,11 @@ final class RectangleAnnotation: TwoPointAnnotation {
         let target = isFilled ? rect : rect.insetBy(dx: lineWidth / 2, dy: lineWidth / 2)
         guard target.width > 0, target.height > 0 else { return }
 
+        let radius = min(style.cornerRadius, min(target.width, target.height) / 2)
         let path = CGPath(
             roundedRect: target,
-            cornerWidth: min(cornerRadius, target.width / 2),
-            cornerHeight: min(cornerRadius, target.height / 2),
+            cornerWidth: radius,
+            cornerHeight: radius,
             transform: nil
         )
 
@@ -48,7 +46,6 @@ final class RectangleAnnotation: TwoPointAnnotation {
         let duplicate = RectangleAnnotation(start: start, end: end, style: style)
         duplicate.id = id
         duplicate.isFilled = isFilled
-        duplicate.cornerRadius = cornerRadius
         return duplicate
     }
 }

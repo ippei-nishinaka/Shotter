@@ -21,11 +21,12 @@ enum ShadowStyle {
     }
 
     /// CGContext（左下原点）で使う影の設定を適用する。
-    static func apply(to context: CGContext, scale: CGFloat) {
+    /// - Parameter strength: 影の強さの倍率。ぼかし・オフセット・濃さにまとめて掛ける。
+    static func apply(to context: CGContext, scale: CGFloat, strength: CGFloat = 1) {
         context.setShadow(
-            offset: CGSize(width: 0, height: -offsetY * scale),
-            blur: blurRadius * scale,
-            color: color
+            offset: CGSize(width: 0, height: -offsetY * scale * strength),
+            blur: blurRadius * scale * strength,
+            color: CGColor(srgbRed: 0, green: 0, blue: 0, alpha: min(opacity * strength, 0.85))
         )
     }
 }

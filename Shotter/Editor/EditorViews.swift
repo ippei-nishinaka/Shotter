@@ -29,6 +29,13 @@ struct EditorView: View {
         VStack(spacing: 0) {
             EditorToolbarView(store: store, onCopy: onCopy, onSave: onSave)
             Divider()
+
+            let options = ToolOptionsBar(store: store)
+            if options.hasContent {
+                options
+                Divider()
+            }
+
             AnnotationCanvasRepresentable(store: store)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -62,10 +69,6 @@ struct EditorToolbarView: View {
             colorGroup
             Divider().frame(height: 20)
             lineWidthGroup
-
-            if store.tool == .pixelate {
-                pixelateModeGroup
-            }
 
             Spacer(minLength: 12)
 
@@ -169,16 +172,18 @@ struct EditorToolbarView: View {
         }
     }
 
-    /// テキストツールのときはフォントサイズ、それ以外は線幅を出す。
+    /// テキストのサイズはオプション行にあるので、ここでは出さない。
     @ViewBuilder
     private var lineWidthGroup: some View {
         if store.tool == .text {
+            EmptyView()
+        } else if store.tool == .counter {
             sliderGroup(
                 symbol: "textformat.size",
                 value: $store.fontSize,
                 range: 10...96,
-                help: "フォントサイズ",
-                detailText: "テキストと連番の大きさを変えます。"
+                help: "丸数字の大きさ",
+                detailText: "ナンバリングの丸数字の大きさを変えます。"
             )
         } else {
             sliderGroup(
@@ -209,21 +214,6 @@ struct EditorToolbarView: View {
                 .frame(width: 22, alignment: .trailing)
         }
         .instantTooltip(title: help, detail: detailText, forceVisible: isTooltipForced(help))
-    }
-
-    private var pixelateModeGroup: some View {
-        Picker("種類", selection: $store.pixelateMode) {
-            ForEach(PixelateAnnotation.Mode.allCases) { mode in
-                Text(mode.title).tag(mode)
-            }
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .frame(width: 130)
-        .instantTooltip(
-            title: "隠し方を選ぶ",
-            detail: "モザイク（四角い粒）とぼかし（にじませる）を切り替えます。"
-        )
     }
 
     private var historyGroup: some View {

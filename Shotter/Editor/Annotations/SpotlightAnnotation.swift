@@ -9,9 +9,6 @@ final class SpotlightAnnotation: TwoPointAnnotation {
     /// 周囲を覆う暗さ。
     static let dimAlpha: CGFloat = 0.55
 
-    /// 明るく残す領域の角丸。
-    var cornerRadius: CGFloat = 6
-
     override var constraintMode: ConstraintMode { .square }
 
     override func draw(in context: CGContext, environment: AnnotationRenderEnvironment) {
@@ -25,7 +22,6 @@ final class SpotlightAnnotation: TwoPointAnnotation {
     override func copy() -> Annotation {
         let duplicate = SpotlightAnnotation(start: start, end: end, style: style)
         duplicate.id = id
-        duplicate.cornerRadius = cornerRadius
         return duplicate
     }
 
@@ -41,7 +37,7 @@ final class SpotlightAnnotation: TwoPointAnnotation {
         let path = CGMutablePath()
         path.addRect(CGRect(origin: .zero, size: environment.imageSize))
         for (index, hole) in holes.enumerated() {
-            let radius = min(spotlights[index].cornerRadius, min(hole.width, hole.height) / 2)
+            let radius = min(spotlights[index].style.cornerRadius, min(hole.width, hole.height) / 2)
             path.addRoundedRect(in: hole, cornerWidth: radius, cornerHeight: radius)
         }
 

@@ -6,6 +6,21 @@ struct AnnotationStyle {
     var lineWidth: CGFloat = 4
     var fontSize: CGFloat = 24
 
+    /// 矢印の形。
+    var arrowHead: ArrowHeadStyle = .filled
+
+    /// 線の種類。
+    var dash: StrokeDashStyle = .solid
+
+    /// 角丸の半径（画像ピクセル）。0 なら直角。四角・ハイライト・強調で使う。
+    var cornerRadius: CGFloat = 0
+
+    /// テキストの書体設定。
+    var text = TextTraits()
+
+    /// モザイク／ぼかしの強さの倍率。
+    var pixelateIntensity: CGFloat = 1
+
     /// CGContext へ渡す前にカラースペースを sRGB へ揃える。
     /// カタログ色（systemRed など）をそのまま cgColor 化すると書き出し先で色が変わることがある。
     var resolvedColor: CGColor {

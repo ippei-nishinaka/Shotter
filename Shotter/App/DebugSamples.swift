@@ -10,6 +10,85 @@ enum DebugSamples {
     private static let columns = 4
     private static let cellSize = CGSize(width: 400, height: 250)
 
+    /// ツールごとのオプション（矢印の形・線種・角丸）の描画確認用。
+    static func populateOptionVariants(_ store: AnnotationStore) {
+        func style(_ color: NSColor, _ width: CGFloat = 6) -> AnnotationStyle {
+            AnnotationStyle(color: color, lineWidth: width, fontSize: 32)
+        }
+
+        // 矢印 3 種
+        for (index, head) in ArrowHeadStyle.allCases.enumerated() {
+            var arrowStyle = style(.systemRed)
+            arrowStyle.arrowHead = head
+            let y = 90 + CGFloat(index) * 90
+            store.add(ArrowAnnotation(
+                start: CGPoint(x: 80, y: y),
+                end: CGPoint(x: 420, y: y),
+                style: arrowStyle
+            ))
+        }
+
+        // 線 4 種
+        for (index, dash) in StrokeDashStyle.allCases.enumerated() {
+            var lineStyle = style(.systemBlue, 5)
+            lineStyle.dash = dash
+            let y = 80 + CGFloat(index) * 70
+            store.add(LineAnnotation(
+                start: CGPoint(x: 540, y: y),
+                end: CGPoint(x: 940, y: y),
+                style: lineStyle
+            ))
+        }
+
+        // 角丸あり／なしの四角とハイライト
+        for (index, radius) in [CGFloat(0), 24].enumerated() {
+            let x = 1060 + CGFloat(index) * 250
+
+            var outline = style(.systemGreen)
+            outline.cornerRadius = radius
+            store.add(RectangleAnnotation(
+                start: CGPoint(x: x, y: 70),
+                end: CGPoint(x: x + 200, y: 200),
+                style: outline
+            ))
+
+            var block = style(.systemPurple)
+            block.cornerRadius = radius
+            let filled = RectangleAnnotation(
+                start: CGPoint(x: x, y: 240),
+                end: CGPoint(x: x + 200, y: 370),
+                style: block
+            )
+            filled.isFilled = true
+            store.add(filled)
+
+            var highlight = style(.systemYellow)
+            highlight.cornerRadius = radius
+            store.add(HighlightAnnotation(
+                start: CGPoint(x: x, y: 410),
+                end: CGPoint(x: x + 200, y: 500),
+                style: highlight
+            ))
+        }
+
+        // テキストの書体
+        var bold = style(.white)
+        bold.text.isBold = true
+        bold.fontSize = 40
+        store.add(TextAnnotation(origin: CGPoint(x: 80, y: 420), text: "太字 Bold", style: bold, maxWidth: 400))
+
+        var italic = style(.white)
+        italic.text.isItalic = true
+        italic.fontSize = 40
+        store.add(TextAnnotation(origin: CGPoint(x: 80, y: 490), text: "斜体 Italic", style: italic, maxWidth: 400))
+
+        var struck = style(.white)
+        struck.text.isStrikethrough = true
+        struck.text.isUnderlined = true
+        struck.fontSize = 40
+        store.add(TextAnnotation(origin: CGPoint(x: 80, y: 560), text: "下線と取消線", style: struck, maxWidth: 400))
+    }
+
     static func populate(_ store: AnnotationStore, includeSpotlight: Bool = false) {
         var slot = 0
         func nextCell() -> CGRect {

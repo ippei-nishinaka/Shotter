@@ -42,6 +42,51 @@ final class AnnotationStore: ObservableObject {
     /// モザイクツールの種類（モザイク／ぼかし）。
     @Published var pixelateMode: PixelateAnnotation.Mode = .pixelate
 
+    // MARK: - ツールごとのオプション
+
+    @Published var arrowHeadStyle: ArrowHeadStyle = .filled {
+        didSet { applyOptionsToSelection() }
+    }
+
+    @Published var lineDashStyle: StrokeDashStyle = .solid {
+        didSet { applyOptionsToSelection() }
+    }
+
+    /// 四角（枠）の角を丸めるか。
+    @Published var roundsOutline = false { didSet { applyOptionsToSelection() } }
+    /// 四角（塗り）の角を丸めるか。
+    @Published var roundsBlock = false { didSet { applyOptionsToSelection() } }
+    /// ハイライトの角を丸めるか。
+    @Published var roundsHighlight = false { didSet { applyOptionsToSelection() } }
+    /// 強調で明るく残す部分の角を丸めるか。
+    @Published var roundsFocus = false { didSet { applyOptionsToSelection() } }
+
+    /// モザイク／ぼかしの強さ。
+    @Published var pixelateIntensity: CGFloat = 1 {
+        didSet { applyOptionsToSelection() }
+    }
+
+    @Published var textTraits = TextTraits() {
+        didSet { applyOptionsToSelection() }
+    }
+
+    /// 影の強さ（0.3〜2.0 くらいを想定）。
+    @Published var shadowStrength: CGFloat = 1 {
+        didSet { didChange() }
+    }
+
+    /// 画像の角を丸めるときの半径（ポイント）。
+    @Published var cornerRoundness: CGFloat = ImageMask.roundedCornerRadius {
+        didSet {
+            guard cornerRoundness != oldValue else { return }
+            roundedImageCache = nil
+            didChange()
+        }
+    }
+
+    /// 図形の角を丸めるときの半径（画像ピクセル）。
+    private var shapeCornerRadius: CGFloat { 8 * pixelScale }
+
     @Published private(set) var annotations: [Annotation] = []
     @Published private(set) var undoStack: [[Annotation]] = []
     @Published private(set) var redoStack: [[Annotation]] = []
@@ -80,7 +125,7 @@ final class AnnotationStore: ObservableObject {
 
         let image = ImageMask.roundedCorners(
             sourceImage,
-            radius: ImageMask.roundedCornerRadius * pixelScale
+            radius: cornerRoundness * pixelScale
         ) ?? sourceImage
         roundedImageCache = image
         return image
@@ -109,7 +154,7 @@ final class AnnotationStore: ObservableObject {
 
     /// 影を付けたときに画像の周りへ足す余白（ピクセル）。
     var shadowPadding: CGFloat {
-        hasShadow ? ShadowStyle.padding * pixelScale : 0
+        hasShadow ? ShadowStyle.padding * pixelScale * max(shadowStrength, 1) : 0
     }
 
     /// 書き出される画像全体のサイズ（影の余白を含む）。
@@ -121,7 +166,24 @@ final class AnnotationStore: ObservableObject {
     }
 
     var currentStyle: AnnotationStyle {
-        AnnotationStyle(color: color, lineWidth: lineWidth, fontSize: fontSize)
+        var style = AnnotationStyle(color: color, lineWidth: lineWidth, fontSize: fontSize)
+        style.arrowHead = arrowHeadStyle
+        style.dash = lineDashStyle
+        style.text = textTraits
+        style.pixelateIntensity = pixelateIntensity
+        style.cornerRadius = roundsCorners(for: tool) ? shapeCornerRadius : 0
+        return style
+    }
+
+    /// そのツールで「角を丸める」が有効か。
+    func roundsCorners(for tool: AnnotationTool) -> Bool {
+        switch tool {
+        case .rectangle:       return roundsOutline
+        case .filledRectangle: return roundsBlock
+        case .highlight:       return roundsHighlight
+        case .spotlight:       return roundsFocus
+        default:               return false
+        }
     }
 
     var renderEnvironment: AnnotationRenderEnvironment {
@@ -168,6 +230,10 @@ final class AnnotationStore: ObservableObject {
         color = annotation.style.color
         lineWidth = annotation.style.lineWidth
         fontSize = annotation.style.fontSize
+        arrowHeadStyle = annotation.style.arrowHead
+        lineDashStyle = annotation.style.dash
+        textTraits = annotation.style.text
+        pixelateIntensity = annotation.style.pixelateIntensity
         isSyncingStyle = false
 
         didChange()
@@ -181,6 +247,37 @@ final class AnnotationStore: ObservableObject {
         selectedAnnotation.style.lineWidth = lineWidth
         selectedAnnotation.style.fontSize = fontSize
         didChange()
+    }
+
+    /// ツールごとのオプションを選択中の注釈へ反映する。
+    /// 角丸だけは注釈の種類ごとに設定が分かれているので、実際の型を見て決める。
+    private func applyOptionsToSelection() {
+        guard !isSyncingStyle else { return }
+        guard let selectedAnnotation else {
+            didChange()
+            return
+        }
+
+        selectedAnnotation.style.arrowHead = arrowHeadStyle
+        selectedAnnotation.style.dash = lineDashStyle
+        selectedAnnotation.style.text = textTraits
+        selectedAnnotation.style.pixelateIntensity = pixelateIntensity
+        selectedAnnotation.style.cornerRadius =
+            roundsCorners(forAnnotation: selectedAnnotation) ? shapeCornerRadius : 0
+        didChange()
+    }
+
+    private func roundsCorners(forAnnotation annotation: Annotation) -> Bool {
+        switch annotation {
+        case let rectangle as RectangleAnnotation:
+            return rectangle.isFilled ? roundsBlock : roundsOutline
+        case is HighlightAnnotation:
+            return roundsHighlight
+        case is SpotlightAnnotation:
+            return roundsFocus
+        default:
+            return false
+        }
     }
 
     func removeAll() {
