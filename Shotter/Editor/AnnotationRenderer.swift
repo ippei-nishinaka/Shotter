@@ -36,10 +36,10 @@ enum AnnotationRenderer {
             // 元画像のアルファ（ウィンドウの角丸など）に沿って影が落ちる。
             context.saveGState()
             ShadowStyle.apply(to: context, scale: store.pixelScale)
-            context.draw(store.sourceImage, in: imageRect)
+            context.draw(store.renderImage, in: imageRect)
             context.restoreGState()
         } else {
-            context.draw(store.sourceImage, in: imageRect)
+            context.draw(store.renderImage, in: imageRect)
         }
 
         // 注釈は左上原点で座標を持っているので、余白の分ずらしてから y 軸を反転する。

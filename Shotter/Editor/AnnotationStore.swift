@@ -57,6 +57,35 @@ final class AnnotationStore: ObservableObject {
         }
     }
 
+    /// 画像の角を丸めるか。
+    /// ウィンドウキャプチャは撮影時点で実際の形に切り抜かれているので、
+    /// 主に範囲キャプチャで使うオプション。
+    @Published var hasRoundedCorners: Bool = Preferences.roundsCornersByDefault {
+        didSet {
+            guard hasRoundedCorners != oldValue else { return }
+            roundedImageCache = nil
+            didChange()
+        }
+    }
+
+    private var roundedImageCache: CGImage?
+
+    /// 実際に描画・書き出しに使う画像。角丸オプションが入っていれば丸めたもの。
+    ///
+    /// 影は「描いた図形の形」から作られるため、先に丸めた画像を用意しておく必要がある
+    /// （clip してから影付きで描くと、影自体も clip されて消えてしまう）。
+    var renderImage: CGImage {
+        guard hasRoundedCorners else { return sourceImage }
+        if let roundedImageCache { return roundedImageCache }
+
+        let image = ImageMask.roundedCorners(
+            sourceImage,
+            radius: ImageMask.roundedCornerRadius * pixelScale
+        ) ?? sourceImage
+        roundedImageCache = image
+        return image
+    }
+
     /// OCR の実行中フラグと結果。結果が入るとシートが開く。
     @Published var isRecognizingText = false
     @Published var recognizedTextResult: RecognizedTextResult?

@@ -58,8 +58,9 @@ struct EditorToolbarView: View {
     var body: some View {
         HStack(spacing: 8) {
             toolGroup
-            Divider().frame(height: 20)
+            // ナンバリングと影の間は仕切らない（見た目のオプションも同じ並びに置く）。
             shadowToggle
+            cornerToggle
             Divider().frame(height: 20)
             colorGroup
             Divider().frame(height: 20)
@@ -113,6 +114,28 @@ struct EditorToolbarView: View {
             shortcut: "S",
             detail: "画像の周りに余白と影を付けます。ウィンドウを撮ったときに見栄えがします。",
             forceVisible: isTooltipForced("影（Shadow）")
+        )
+    }
+
+    /// 画像の角を丸めるトグル。
+    private var cornerToggle: some View {
+        Button {
+            store.hasRoundedCorners.toggle()
+        } label: {
+            Image(nsImage: RoundedCornerToggleIcon.image)
+                .frame(width: 26, height: 24)
+                .background(
+                    RoundedRectangle(cornerRadius: 5)
+                        .fill(store.hasRoundedCorners ? Color.accentColor.opacity(0.9) : .clear)
+                )
+                .foregroundStyle(store.hasRoundedCorners ? Color.white : Color.primary)
+        }
+        .buttonStyle(.plain)
+        .instantTooltip(
+            title: "角を丸める（Round）",
+            shortcut: "O",
+            detail: "画像の四隅を丸くします。ウィンドウを撮ったときは元から丸いので、範囲キャプチャ向けです。",
+            forceVisible: isTooltipForced("角を丸める（Round）")
         )
     }
 
@@ -492,6 +515,56 @@ private enum ShadowToggleIcon {
             return true
         }
         image.isTemplate = false
+        return image
+    }()
+}
+
+
+/// 角丸トグル用のアイコン。
+///
+/// 角丸の四角をそのまま描くと「四角（枠）」ツールと紛らわしいので、
+/// デザインツールでよく使われる「角の弧だけを見せる」形にしている。
+/// テンプレート画像なので、選択時は白、通常時はラベル色に自動で色が付く。
+private enum RoundedCornerToggleIcon {
+
+    static let image: NSImage = {
+        let size = NSSize(width: 20, height: 18)
+        let image = NSImage(size: size, flipped: false) { _ in
+            guard let context = NSGraphicsContext.current?.cgContext else { return true }
+
+            // 左上の角だけを、丸みを強調して描く。
+            let path = CGMutablePath()
+            path.move(to: CGPoint(x: 4, y: 3))
+            path.addLine(to: CGPoint(x: 4, y: 9))
+            path.addArc(
+                tangent1End: CGPoint(x: 4, y: 15),
+                tangent2End: CGPoint(x: 10, y: 15),
+                radius: 6
+            )
+            path.addLine(to: CGPoint(x: 16, y: 15))
+
+            context.addPath(path)
+            context.setStrokeColor(CGColor(gray: 0, alpha: 1))
+            context.setLineWidth(1.8)
+            context.setLineCap(.round)
+            context.setLineJoin(.round)
+            context.strokePath()
+
+            // 角が「丸められている」ことが伝わるよう、元の直角を点線で薄く添える。
+            let ghost = CGMutablePath()
+            ghost.move(to: CGPoint(x: 4, y: 9))
+            ghost.addLine(to: CGPoint(x: 4, y: 15))
+            ghost.addLine(to: CGPoint(x: 10, y: 15))
+
+            context.addPath(ghost)
+            context.setStrokeColor(CGColor(gray: 0, alpha: 0.35))
+            context.setLineWidth(1)
+            context.setLineDash(phase: 0, lengths: [1.6, 1.6])
+            context.strokePath()
+
+            return true
+        }
+        image.isTemplate = true
         return image
     }()
 }

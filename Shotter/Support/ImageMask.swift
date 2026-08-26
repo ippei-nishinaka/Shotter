@@ -2,6 +2,9 @@ import CoreGraphics
 
 enum ImageMask {
 
+    /// 「角を丸める」オプションで使う半径（ポイント）。
+    static let roundedCornerRadius: CGFloat = 12
+
     /// ウィンドウの実際の形が取れなかったときに使う、角丸半径の目安（ポイント）。
     ///
     /// macOS 26 でウィンドウの角丸が大きくなったため、OS で値を変えている。

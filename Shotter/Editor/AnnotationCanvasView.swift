@@ -112,8 +112,8 @@ final class AnnotationCanvasView: NSView {
         guard let store, !imageRect.isEmpty else { return }
 
         context.interpolationQuality = .high
-        drawSourceImage(store.sourceImage, in: context, store: store)
-        if !store.hasShadow { drawImageBorder() }
+        drawSourceImage(store.renderImage, in: context, store: store)
+        if !store.hasShadow, !store.hasRoundedCorners { drawImageBorder() }
         drawAnnotationLayer(store, in: context)
         drawSelectionOverlay(store)
     }

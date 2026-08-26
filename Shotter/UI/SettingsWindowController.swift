@@ -37,6 +37,10 @@ final class SettingsModel: ObservableObject {
         didSet { Preferences.addsShadowByDefault = addsShadowByDefault }
     }
 
+    @Published var roundsCornersByDefault: Bool {
+        didSet { Preferences.roundsCornersByDefault = roundsCornersByDefault }
+    }
+
     @Published var imageFormat: ImageFormat {
         didSet { Preferences.imageFormat = imageFormat }
     }
@@ -74,6 +78,7 @@ final class SettingsModel: ObservableObject {
         textHotKey = Preferences.textRecognitionHotKey
         afterCaptureAction = Preferences.afterCaptureAction
         addsShadowByDefault = Preferences.addsShadowByDefault
+        roundsCornersByDefault = Preferences.roundsCornersByDefault
         imageFormat = Preferences.imageFormat
         jpegQuality = Preferences.jpegQuality
         loginItemMessage = message(for: LoginItemManager.state)
@@ -188,7 +193,8 @@ struct SettingsView: View {
 
                 VStack(alignment: .leading, spacing: 4) {
                     Toggle("最初から影を付ける", isOn: $model.addsShadowByDefault)
-                    Text("オフでも、エディタで S キーを押せばその 1 枚だけ影を付けられます。")
+                    Toggle("最初から角を丸める", isOn: $model.roundsCornersByDefault)
+                    Text("どちらもオフのままでも、エディタで S / O キーを押せばその 1 枚だけ切り替えられます。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)

@@ -14,6 +14,7 @@ enum Preferences {
         static let afterCapture = "afterCaptureAction"
         static let hasCompletedOnboarding = "hasCompletedOnboarding"
         static let addsShadowByDefault = "addsShadowByDefault"
+        static let roundsCornersByDefault = "roundsCornersByDefault"
     }
 
     private static var defaults: UserDefaults { .standard }
@@ -45,6 +46,12 @@ enum Preferences {
     static var addsShadowByDefault: Bool {
         get { defaults.bool(forKey: Key.addsShadowByDefault) }
         set { defaults.set(newValue, forKey: Key.addsShadowByDefault) }
+    }
+
+    /// 撮影した画像の角を最初から丸めるか（既定は OFF）。
+    static var roundsCornersByDefault: Bool {
+        get { defaults.bool(forKey: Key.roundsCornersByDefault) }
+        set { defaults.set(newValue, forKey: Key.roundsCornersByDefault) }
     }
 
     /// 初回起動時の案内を表示済みか。
