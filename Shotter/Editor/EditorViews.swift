@@ -360,8 +360,10 @@ private struct ToolButton: View {
         )
     }
 
-    /// SF Symbol が無い OS でも欠けないように代替名へフォールバックする。
+    /// SF Symbol では意味が伝わらないツールだけ自前で描き、それ以外は SF Symbol を使う。
     private static func symbolImage(for tool: AnnotationTool) -> NSImage {
+        if let custom = ToolIcon.custom(for: tool) { return custom }
+
         if let image = NSImage(systemSymbolName: tool.symbolName, accessibilityDescription: tool.title) {
             return image
         }
@@ -582,6 +584,83 @@ private enum RoundedCornerToggleIcon {
             context.setStrokeColor(CGColor(gray: 0, alpha: 0.35))
             context.setLineWidth(1)
             context.setLineDash(phase: 0, lengths: [1.6, 1.6])
+            context.strokePath()
+
+            return true
+        }
+        image.isTemplate = true
+        return image
+    }()
+}
+
+
+/// SF Symbol では何のツールか伝わりにくいものを自前で描く。
+///
+/// テンプレート画像なので色は自動で付く。ただし塗りの濃さ（アルファ）は
+/// そのまま残るため、モザイクの粒や強調の暗転を濃淡で表現できる。
+private enum ToolIcon {
+
+    static func custom(for tool: AnnotationTool) -> NSImage? {
+        switch tool {
+        case .pixelate:  return mosaic
+        case .spotlight: return focus
+        default:         return nil
+        }
+    }
+
+    /// モザイク: 濃さの違う粗いブロックを敷き詰めて「粒状に潰す」ことを示す。
+    private static let mosaic: NSImage = {
+        let image = NSImage(size: NSSize(width: 20, height: 18), flipped: false) { _ in
+            guard let context = NSGraphicsContext.current?.cgContext else { return true }
+
+            let origin = CGPoint(x: 3, y: 3)
+            let cell = CGSize(width: 3.5, height: 4)
+            let alphas: [[CGFloat]] = [
+                [1.00, 0.30, 0.70, 0.25],
+                [0.35, 0.90, 0.20, 0.65],
+                [0.75, 0.25, 0.55, 1.00],
+            ]
+
+            for (row, values) in alphas.enumerated() {
+                for (column, alpha) in values.enumerated() {
+                    context.setFillColor(CGColor(gray: 0, alpha: alpha))
+                    context.fill(CGRect(
+                        x: origin.x + CGFloat(column) * cell.width,
+                        y: origin.y + CGFloat(row) * cell.height,
+                        width: cell.width,
+                        height: cell.height
+                    ))
+                }
+            }
+            return true
+        }
+        image.isTemplate = true
+        return image
+    }()
+
+    /// 強調: 周囲を暗くし、真ん中だけ明るく抜けている状態を示す。
+    private static let focus: NSImage = {
+        let image = NSImage(size: NSSize(width: 20, height: 18), flipped: false) { _ in
+            guard let context = NSGraphicsContext.current?.cgContext else { return true }
+
+            let outer = CGRect(x: 2.5, y: 2.5, width: 15, height: 13)
+            let inner = CGRect(x: 6.5, y: 6, width: 7, height: 6)
+
+            // even-odd で内側を抜き、周囲だけを薄く塗る＝暗転の表現。
+            let path = CGMutablePath()
+            path.addRect(outer)
+            path.addRoundedRect(in: inner, cornerWidth: 1.5, cornerHeight: 1.5)
+
+            context.addPath(path)
+            context.setFillColor(CGColor(gray: 0, alpha: 0.45))
+            context.fillPath(using: .evenOdd)
+
+            // 明るく残る部分の輪郭をはっきりさせる。
+            context.addPath(
+                CGPath(roundedRect: inner, cornerWidth: 1.5, cornerHeight: 1.5, transform: nil)
+            )
+            context.setStrokeColor(CGColor(gray: 0, alpha: 1))
+            context.setLineWidth(1.3)
             context.strokePath()
 
             return true
