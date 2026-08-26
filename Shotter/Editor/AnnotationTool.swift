@@ -30,7 +30,7 @@ enum AnnotationTool: String, CaseIterable, Identifiable {
         case .text:            return "テキスト"
         case .pixelate:        return "モザイク"
         case .spotlight:       return "強調"
-        case .counter:         return "連番"
+        case .counter:         return "ナンバリング"
         }
     }
 
@@ -48,7 +48,7 @@ enum AnnotationTool: String, CaseIterable, Identifiable {
         case .text:            return "Text"
         case .pixelate:        return "Mosaic"
         case .spotlight:       return "Focus"
-        case .counter:         return "Sequence"
+        case .counter:         return "Numbering"
         }
     }
 
@@ -133,7 +133,7 @@ enum AnnotationTool: String, CaseIterable, Identifiable {
         case .text:            return "t"
         case .pixelate:        return "m"
         case .spotlight:       return "f"
-        case .counter:         return "s"
+        case .counter:         return "n"
         }
     }
 }

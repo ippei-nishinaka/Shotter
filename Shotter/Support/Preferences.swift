@@ -13,6 +13,7 @@ enum Preferences {
         static let textHotKey = "textRecognitionHotKey"
         static let afterCapture = "afterCaptureAction"
         static let hasCompletedOnboarding = "hasCompletedOnboarding"
+        static let addsShadow = "addsShadow"
     }
 
     private static var defaults: UserDefaults { .standard }
@@ -37,6 +38,12 @@ enum Preferences {
         set {
             defaults.set(newValue.rawValue, forKey: Key.imageFormat)
         }
+    }
+
+    /// 画像の周りに影を付けるか。エディタで切り替えた状態を次回にも引き継ぐ。
+    static var addsShadow: Bool {
+        get { defaults.bool(forKey: Key.addsShadow) }
+        set { defaults.set(newValue, forKey: Key.addsShadow) }
     }
 
     /// 初回起動時の案内を表示済みか。

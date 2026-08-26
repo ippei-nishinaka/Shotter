@@ -46,6 +46,15 @@ final class AnnotationStore: ObservableObject {
     @Published private(set) var undoStack: [[Annotation]] = []
     @Published private(set) var redoStack: [[Annotation]] = []
 
+    /// 画像の周りに影を付けるか。注釈の座標系には影響しない（描画時だけ余白を足す）。
+    @Published var hasShadow: Bool = Preferences.addsShadow {
+        didSet {
+            guard hasShadow != oldValue else { return }
+            Preferences.addsShadow = hasShadow
+            didChange()
+        }
+    }
+
     /// OCR の実行中フラグと結果。結果が入るとシートが開く。
     @Published var isRecognizingText = false
     @Published var recognizedTextResult: RecognizedTextResult?
@@ -60,6 +69,25 @@ final class AnnotationStore: ObservableObject {
     var canUndo: Bool { !undoStack.isEmpty }
     var canRedo: Bool { !redoStack.isEmpty }
     var isEmpty: Bool { annotations.isEmpty }
+
+    /// 画像 1 ポイントあたりのピクセル数。影のサイズを実寸に換算するのに使う。
+    var pixelScale: CGFloat {
+        guard pointSize.width > 0 else { return 2 }
+        return imageSize.width / pointSize.width
+    }
+
+    /// 影を付けたときに画像の周りへ足す余白（ピクセル）。
+    var shadowPadding: CGFloat {
+        hasShadow ? ShadowStyle.padding * pixelScale : 0
+    }
+
+    /// 書き出される画像全体のサイズ（影の余白を含む）。
+    var outputSize: CGSize {
+        CGSize(
+            width: imageSize.width + shadowPadding * 2,
+            height: imageSize.height + shadowPadding * 2
+        )
+    }
 
     var currentStyle: AnnotationStyle {
         AnnotationStyle(color: color, lineWidth: lineWidth, fontSize: fontSize)

@@ -7,8 +7,9 @@ enum AnnotationRenderer {
     /// 元画像＋注釈を 1 枚のビットマップに焼き込む。
     /// - Returns: 画像ピクセル等倍の CGImage。
     static func flatten(_ store: AnnotationStore) -> CGImage? {
-        let width = Int(store.imageSize.width)
-        let height = Int(store.imageSize.height)
+        let padding = store.shadowPadding
+        let width = Int(store.outputSize.width.rounded())
+        let height = Int(store.outputSize.height.rounded())
         guard width > 0, height > 0,
               let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
               let context = CGContext(
@@ -23,10 +24,28 @@ enum AnnotationRenderer {
         else { return nil }
 
         context.interpolationQuality = .high
-        context.draw(store.sourceImage, in: CGRect(origin: .zero, size: store.imageSize))
 
-        // 注釈は左上原点で座標を持っているので、y 軸を反転してから描く。
+        let imageRect = CGRect(
+            x: padding,
+            y: padding,
+            width: store.imageSize.width,
+            height: store.imageSize.height
+        )
+
+        if store.hasShadow {
+            // 元画像のアルファ（ウィンドウの角丸など）に沿って影が落ちる。
+            context.saveGState()
+            ShadowStyle.apply(to: context, scale: store.pixelScale)
+            context.draw(store.sourceImage, in: imageRect)
+            context.restoreGState()
+        } else {
+            context.draw(store.sourceImage, in: imageRect)
+        }
+
+        // 注釈は左上原点で座標を持っているので、余白の分ずらしてから y 軸を反転する。
+        // 注釈自体には影を付けない。
         context.saveGState()
+        context.translateBy(x: padding, y: padding)
         flipToTopLeftOrigin(context, height: store.imageSize.height)
         drawAnnotations(store.annotations, in: context, environment: store.renderEnvironment)
         context.restoreGState()

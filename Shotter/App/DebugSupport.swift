@@ -689,6 +689,9 @@ enum DebugSupport {
             pointSize: CGSize(width: 800, height: 500)
         )
 
+        if CommandLine.arguments.contains("--debug-shadow") {
+            controller.store.hasShadow = true
+        }
         if CommandLine.arguments.contains("--debug-samples") {
             DebugSamples.populate(
                 controller.store,

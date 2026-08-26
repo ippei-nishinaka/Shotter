@@ -149,9 +149,19 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSMenu
             break
         }
 
-        guard let character = event.charactersIgnoringModifiers?.lowercased().first,
-              let tool = AnnotationTool.allCases.first(where: { $0.shortcutKey == character })
-        else { return false }
+        guard let character = event.charactersIgnoringModifiers?.lowercased().first else {
+            return false
+        }
+
+        // S は描画ツールではなく、影のオン／オフ。
+        if character == "s" {
+            store.hasShadow.toggle()
+            return true
+        }
+
+        guard let tool = AnnotationTool.allCases.first(where: { $0.shortcutKey == character }) else {
+            return false
+        }
 
         store.tool = tool
         canvas?.window?.invalidateCursorRects(for: canvas!)

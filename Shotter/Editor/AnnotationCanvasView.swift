@@ -76,26 +76,29 @@ final class AnnotationCanvasView: NSView {
             height: max(bounds.height - canvasInset * 2, 1)
         )
 
+        // 影を付けるときは余白の分だけ全体が大きくなるので、それも収まるように縮める。
+        let output = store.outputSize
+
         // 等倍（＝撮影時のポイントサイズ）を超えて拡大はしない。
         let naturalScale = store.pointSize.width > 0
             ? store.pointSize.width / store.imageSize.width
             : 1
         let fitScale = min(
-            available.width / store.imageSize.width,
-            available.height / store.imageSize.height
+            available.width / output.width,
+            available.height / output.height
         )
         displayScale = min(fitScale, naturalScale)
 
-        let size = CGSize(
-            width: (store.imageSize.width * displayScale).rounded(),
-            height: (store.imageSize.height * displayScale).rounded()
+        let outputRect = CGRect(
+            x: ((bounds.width - output.width * displayScale) / 2).rounded(),
+            y: ((bounds.height - output.height * displayScale) / 2).rounded(),
+            width: (output.width * displayScale).rounded(),
+            height: (output.height * displayScale).rounded()
         )
-        imageRect = CGRect(
-            x: ((bounds.width - size.width) / 2).rounded(),
-            y: ((bounds.height - size.height) / 2).rounded(),
-            width: size.width,
-            height: size.height
-        )
+
+        // 画像そのものの位置は、余白の内側。注釈の座標変換はこちらを基準にする。
+        let padding = store.shadowPadding * displayScale
+        imageRect = outputRect.insetBy(dx: padding, dy: padding)
     }
 
     // MARK: - 描画
@@ -109,8 +112,8 @@ final class AnnotationCanvasView: NSView {
         guard let store, !imageRect.isEmpty else { return }
 
         context.interpolationQuality = .high
-        drawSourceImage(store.sourceImage, in: context)
-        drawImageBorder()
+        drawSourceImage(store.sourceImage, in: context, store: store)
+        if !store.hasShadow { drawImageBorder() }
         drawAnnotationLayer(store, in: context)
         drawSelectionOverlay(store)
     }
@@ -144,11 +147,18 @@ final class AnnotationCanvasView: NSView {
         }
     }
 
-    private func drawSourceImage(_ image: CGImage, in context: CGContext) {
+    private func drawSourceImage(_ image: CGImage, in context: CGContext, store: AnnotationStore) {
         // flipped ビューでは CGImage が上下反転して描かれるため、画像矩形の中で y 軸を戻す。
+        // 反転後は通常の CG 座標系（y 上向き）になるので、影の向きは書き出し時と揃う。
         context.saveGState()
         context.translateBy(x: 0, y: imageRect.maxY)
         context.scaleBy(x: 1, y: -1)
+
+        if store.hasShadow {
+            // 画面上の見た目を書き出し結果に合わせるため、表示倍率を掛ける。
+            ShadowStyle.apply(to: context, scale: store.pixelScale * displayScale)
+        }
+
         context.draw(
             image,
             in: CGRect(x: imageRect.minX, y: 0, width: imageRect.width, height: imageRect.height)

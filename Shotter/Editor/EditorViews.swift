@@ -59,6 +59,8 @@ struct EditorToolbarView: View {
         HStack(spacing: 8) {
             toolGroup
             Divider().frame(height: 20)
+            shadowToggle
+            Divider().frame(height: 20)
             colorGroup
             Divider().frame(height: 20)
             lineWidthGroup
@@ -91,6 +93,28 @@ struct EditorToolbarView: View {
                 )
             }
         }
+    }
+
+    /// 画像の周りに影を付けるトグル。描画ツールではないので枠を分けている。
+    private var shadowToggle: some View {
+        Button {
+            store.hasShadow.toggle()
+        } label: {
+            Image(systemName: "shadow")
+                .frame(width: 26, height: 24)
+                .background(
+                    RoundedRectangle(cornerRadius: 5)
+                        .fill(store.hasShadow ? Color.accentColor.opacity(0.9) : .clear)
+                )
+                .foregroundStyle(store.hasShadow ? Color.white : Color.primary)
+        }
+        .buttonStyle(.plain)
+        .instantTooltip(
+            title: "影（Shadow）",
+            shortcut: "S",
+            detail: "画像の周りに余白と影を付けます。ウィンドウを撮ったときに見栄えがします。",
+            forceVisible: isTooltipForced("影（Shadow）")
+        )
     }
 
     private var colorGroup: some View {
