@@ -75,11 +75,14 @@ struct ToolOptionsBar: View {
         case .arrow:
             labeled("矢じり") {
                 Picker("", selection: $store.arrowHeadStyle) {
-                    ForEach(ArrowHeadStyle.allCases) { Text($0.title).tag($0) }
+                    ForEach(ArrowHeadStyle.allCases) { head in
+                        Image(nsImage: OptionIcon.arrow(head)).tag(head)
+                    }
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                .frame(width: 180)
+                .frame(width: 150)
+                .help("矢じりの形")
             }
 
         case .rounding:
@@ -88,11 +91,14 @@ struct ToolOptionsBar: View {
         case .line:
             labeled("線の種類") {
                 Picker("", selection: $store.lineDashStyle) {
-                    ForEach(StrokeDashStyle.allCases) { Text($0.title).tag($0) }
+                    ForEach(StrokeDashStyle.allCases) { dash in
+                        Image(nsImage: OptionIcon.dash(dash)).tag(dash)
+                    }
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                .frame(width: 240)
+                .frame(width: 190)
+                .help("線の種類")
             }
 
         case .text:
@@ -225,5 +231,108 @@ struct ToolOptionsBar: View {
             get: { store.textTraits[keyPath: keyPath] },
             set: { store.textTraits[keyPath: keyPath] = $0 }
         )
+    }
+}
+
+
+/// オプション行のピッカーに使うアイコン。
+/// 「塗り／線／両矢印」のような文字より、形をそのまま見せた方が早く分かる。
+private enum OptionIcon {
+
+    private static let size = NSSize(width: 30, height: 12)
+
+    static func arrow(_ head: ArrowHeadStyle) -> NSImage {
+        cache(key: "arrow-\(head.rawValue)") { context in
+            let left = CGPoint(x: 3, y: 6)
+            let right = CGPoint(x: 27, y: 6)
+            let headLength: CGFloat = 7
+            let headWidth: CGFloat = 7
+
+            context.setStrokeColor(CGColor(gray: 0, alpha: 1))
+            context.setFillColor(CGColor(gray: 0, alpha: 1))
+            context.setLineWidth(1.6)
+            context.setLineCap(.round)
+
+            switch head {
+            case .filled:
+                stroke(from: left, to: CGPoint(x: right.x - headLength, y: right.y), in: context)
+                fillHead(at: right, pointingRight: true, length: headLength, width: headWidth, in: context)
+            case .open:
+                stroke(from: left, to: right, in: context)
+                strokeHead(at: right, pointingRight: true, length: headLength, width: headWidth, in: context)
+            case .double:
+                stroke(
+                    from: CGPoint(x: left.x + headLength, y: left.y),
+                    to: CGPoint(x: right.x - headLength, y: right.y),
+                    in: context
+                )
+                fillHead(at: right, pointingRight: true, length: headLength, width: headWidth, in: context)
+                fillHead(at: left, pointingRight: false, length: headLength, width: headWidth, in: context)
+            }
+        }
+    }
+
+    static func dash(_ style: StrokeDashStyle) -> NSImage {
+        cache(key: "dash-\(style.rawValue)") { context in
+            context.setStrokeColor(CGColor(gray: 0, alpha: 1))
+            context.setLineWidth(1.8)
+            context.setLineCap(style.lineCap)
+            if let pattern = style.dashPattern(lineWidth: 1.8) {
+                context.setLineDash(phase: 0, lengths: pattern)
+            }
+            stroke(from: CGPoint(x: 2, y: 6), to: CGPoint(x: 28, y: 6), in: context)
+        }
+    }
+
+    // MARK: - Private
+
+    private static var images: [String: NSImage] = [:]
+
+    private static func cache(key: String, draw: @escaping (CGContext) -> Void) -> NSImage {
+        if let cached = images[key] { return cached }
+
+        let image = NSImage(size: size, flipped: false) { _ in
+            guard let context = NSGraphicsContext.current?.cgContext else { return true }
+            draw(context)
+            return true
+        }
+        image.isTemplate = true
+        images[key] = image
+        return image
+    }
+
+    private static func stroke(from: CGPoint, to: CGPoint, in context: CGContext) {
+        context.move(to: from)
+        context.addLine(to: to)
+        context.strokePath()
+    }
+
+    private static func fillHead(
+        at tip: CGPoint,
+        pointingRight: Bool,
+        length: CGFloat,
+        width: CGFloat,
+        in context: CGContext
+    ) {
+        let baseX = pointingRight ? tip.x - length : tip.x + length
+        context.move(to: tip)
+        context.addLine(to: CGPoint(x: baseX, y: tip.y + width / 2))
+        context.addLine(to: CGPoint(x: baseX, y: tip.y - width / 2))
+        context.closePath()
+        context.fillPath()
+    }
+
+    private static func strokeHead(
+        at tip: CGPoint,
+        pointingRight: Bool,
+        length: CGFloat,
+        width: CGFloat,
+        in context: CGContext
+    ) {
+        let baseX = pointingRight ? tip.x - length : tip.x + length
+        context.move(to: CGPoint(x: baseX, y: tip.y + width / 2))
+        context.addLine(to: tip)
+        context.addLine(to: CGPoint(x: baseX, y: tip.y - width / 2))
+        context.strokePath()
     }
 }

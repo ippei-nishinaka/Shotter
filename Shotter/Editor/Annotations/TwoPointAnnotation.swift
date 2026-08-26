@@ -99,7 +99,7 @@ class TwoPointAnnotation: Annotation, DragCreatableAnnotation, ResizableAnnotati
             case .bottom:      maxY = point.y
             case .bottomLeft:  minX = point.x; maxY = point.y
             case .left:        minX = point.x
-            case .start, .end: break
+            case .start, .end, .bend: break
             }
 
             // rect 側で正規化されるので、反転しても破綻しない。

@@ -36,6 +36,9 @@ final class AnnotationStore: ObservableObject {
     /// 選択ツールで選ばれている注釈。
     @Published var selectedID: UUID?
 
+    /// 直前に描いた注釈。選択していないときは、色やオプションの変更をこれに反映する。
+    @Published private(set) var lastAddedID: UUID?
+
     /// ツールバーから選択中の注釈へスタイルを反映させる際の再入防止。
     private var isSyncingStyle = false
 
@@ -142,6 +145,14 @@ final class AnnotationStore: ObservableObject {
         annotations.first { $0.id == selectedID }
     }
 
+    /// 色やオプションの変更を反映する相手。
+    /// 選択中のものがあればそれ、無ければ直前に描いたもの。
+    private var styleTarget: Annotation? {
+        if let selectedAnnotation { return selectedAnnotation }
+        guard let lastAddedID else { return nil }
+        return annotations.first { $0.id == lastAddedID }
+    }
+
     var canUndo: Bool { !undoStack.isEmpty }
     var canRedo: Bool { !redoStack.isEmpty }
     var isEmpty: Bool { annotations.isEmpty }
@@ -201,6 +212,7 @@ final class AnnotationStore: ObservableObject {
     func add(_ annotation: Annotation) {
         pushUndoSnapshot()
         annotations.append(annotation)
+        lastAddedID = annotation.id
         didChange()
     }
 
@@ -209,6 +221,7 @@ final class AnnotationStore: ObservableObject {
         pushUndoSnapshot()
         annotations.remove(at: index)
         if selectedID == annotation.id { selectedID = nil }
+        if lastAddedID == annotation.id { lastAddedID = nil }
         didChange()
     }
 
@@ -240,12 +253,12 @@ final class AnnotationStore: ObservableObject {
     }
 
     private func applyStyleToSelection(recordUndo: Bool) {
-        guard !isSyncingStyle, let selectedAnnotation else { return }
+        guard !isSyncingStyle, let target = styleTarget else { return }
         if recordUndo { pushUndoSnapshot() }
 
-        selectedAnnotation.style.color = color
-        selectedAnnotation.style.lineWidth = lineWidth
-        selectedAnnotation.style.fontSize = fontSize
+        target.style.color = color
+        target.style.lineWidth = lineWidth
+        target.style.fontSize = fontSize
         didChange()
     }
 
@@ -253,17 +266,16 @@ final class AnnotationStore: ObservableObject {
     /// 角丸だけは注釈の種類ごとに設定が分かれているので、実際の型を見て決める。
     private func applyOptionsToSelection() {
         guard !isSyncingStyle else { return }
-        guard let selectedAnnotation else {
+        guard let target = styleTarget else {
             didChange()
             return
         }
 
-        selectedAnnotation.style.arrowHead = arrowHeadStyle
-        selectedAnnotation.style.dash = lineDashStyle
-        selectedAnnotation.style.text = textTraits
-        selectedAnnotation.style.pixelateIntensity = pixelateIntensity
-        selectedAnnotation.style.cornerRadius =
-            roundsCorners(forAnnotation: selectedAnnotation) ? shapeCornerRadius : 0
+        target.style.arrowHead = arrowHeadStyle
+        target.style.dash = lineDashStyle
+        target.style.text = textTraits
+        target.style.pixelateIntensity = pixelateIntensity
+        target.style.cornerRadius = roundsCorners(forAnnotation: target) ? shapeCornerRadius : 0
         didChange()
     }
 
@@ -285,6 +297,7 @@ final class AnnotationStore: ObservableObject {
         pushUndoSnapshot()
         annotations.removeAll()
         selectedID = nil
+        lastAddedID = nil
         didChange()
     }
 
@@ -336,8 +349,12 @@ final class AnnotationStore: ObservableObject {
     }
 
     private func dropSelectionIfMissing() {
-        guard let selectedID, !annotations.contains(where: { $0.id == selectedID }) else { return }
-        self.selectedID = nil
+        if let selectedID, !annotations.contains(where: { $0.id == selectedID }) {
+            self.selectedID = nil
+        }
+        if let lastAddedID, !annotations.contains(where: { $0.id == lastAddedID }) {
+            self.lastAddedID = nil
+        }
     }
 
     private func pushUndoSnapshot() {

@@ -28,6 +28,19 @@ enum DebugSamples {
             ))
         }
 
+        // 曲げた矢印（bend の正負）
+        for (index, bend) in [CGFloat(70), -70].enumerated() {
+            var curved = style(.systemOrange)
+            curved.arrowHead = .filled
+            let arrow = ArrowAnnotation(
+                start: CGPoint(x: 80, y: 640 + CGFloat(index) * 140),
+                end: CGPoint(x: 420, y: 640 + CGFloat(index) * 140),
+                style: curved
+            )
+            arrow.bend = bend
+            store.add(arrow)
+        }
+
         // 線 4 種
         for (index, dash) in StrokeDashStyle.allCases.enumerated() {
             var lineStyle = style(.systemBlue, 5)

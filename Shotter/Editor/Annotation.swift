@@ -79,6 +79,8 @@ struct AnnotationHandle {
         /// 線・矢印の端点。
         case start
         case end
+        /// 矢印の曲がり具合をつまむ点。
+        case bend
         /// 外接矩形の四隅と辺の中央。
         case topLeft
         case top
