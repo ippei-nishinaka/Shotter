@@ -4,16 +4,17 @@ import CoreGraphics
 /// 値はすべてポイント単位で、描画時に画像の拡大率を掛けて使う。
 enum ShadowStyle {
 
-    /// ぼかしの大きさ。macOS のウィンドウの影に近い、大きめで柔らかい影にしている。
-    static let blurRadius: CGFloat = 26
+    /// ぼかしの大きさ。
+    static let blurRadius: CGFloat = 16
 
     /// 影を落とす方向（下向き）。
-    static let offsetY: CGFloat = 12
+    static let offsetY: CGFloat = 6
 
-    static let opacity: CGFloat = 0.35
+    static let opacity: CGFloat = 0.4
 
     /// 影が切れないように画像の周りへ足す余白。
-    static let padding: CGFloat = 48
+    /// 下方向の広がり (offsetY + blurRadius) より少し大きくしておけば足りる。
+    static let padding: CGFloat = 24
 
     static var color: CGColor {
         CGColor(srgbRed: 0, green: 0, blue: 0, alpha: opacity)

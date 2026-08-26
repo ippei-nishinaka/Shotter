@@ -13,7 +13,7 @@ enum Preferences {
         static let textHotKey = "textRecognitionHotKey"
         static let afterCapture = "afterCaptureAction"
         static let hasCompletedOnboarding = "hasCompletedOnboarding"
-        static let addsShadow = "addsShadow"
+        static let addsShadowByDefault = "addsShadowByDefault"
     }
 
     private static var defaults: UserDefaults { .standard }
@@ -40,10 +40,11 @@ enum Preferences {
         }
     }
 
-    /// 画像の周りに影を付けるか。エディタで切り替えた状態を次回にも引き継ぐ。
-    static var addsShadow: Bool {
-        get { defaults.bool(forKey: Key.addsShadow) }
-        set { defaults.set(newValue, forKey: Key.addsShadow) }
+    /// 撮影した画像に最初から影を付けるか（既定は OFF）。
+    /// エディタの S キーによる切り替えはその 1 枚だけに効き、ここは変えない。
+    static var addsShadowByDefault: Bool {
+        get { defaults.bool(forKey: Key.addsShadowByDefault) }
+        set { defaults.set(newValue, forKey: Key.addsShadowByDefault) }
     }
 
     /// 初回起動時の案内を表示済みか。

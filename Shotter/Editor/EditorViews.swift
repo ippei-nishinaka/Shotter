@@ -100,13 +100,12 @@ struct EditorToolbarView: View {
         Button {
             store.hasShadow.toggle()
         } label: {
-            Image(systemName: "shadow")
+            Image(nsImage: ShadowToggleIcon.image)
                 .frame(width: 26, height: 24)
                 .background(
                     RoundedRectangle(cornerRadius: 5)
                         .fill(store.hasShadow ? Color.accentColor.opacity(0.9) : .clear)
                 )
-                .foregroundStyle(store.hasShadow ? Color.white : Color.primary)
         }
         .buttonStyle(.plain)
         .instantTooltip(
@@ -455,4 +454,44 @@ struct RecognizedTextSheet: View {
         .padding(18)
         .onAppear { text = result.text }
     }
+}
+
+
+/// 影トグル用のアイコン。
+///
+/// SF Symbol の "shadow" は何を表しているのか分かりにくかったので、
+/// 実際に影の付いた角丸四角形を描いて「影」だと一目で分かるようにしている。
+/// ライト／ダークどちらのツールバーでも、選択時の青い背景の上でも読めるよう、
+/// 白いカード＋グレーの輪郭＋濃いめの影という構成にしている。
+private enum ShadowToggleIcon {
+
+    static let image: NSImage = {
+        let size = NSSize(width: 20, height: 18)
+        let image = NSImage(size: size, flipped: false) { _ in
+            guard let context = NSGraphicsContext.current?.cgContext else { return true }
+
+            let card = CGRect(x: 2.5, y: 6.5, width: 11, height: 8.5)
+            let path = CGPath(roundedRect: card, cornerWidth: 2, cornerHeight: 2, transform: nil)
+
+            context.saveGState()
+            context.setShadow(
+                offset: CGSize(width: 2.2, height: -2.6),
+                blur: 3.4,
+                color: CGColor(gray: 0, alpha: 0.7)
+            )
+            context.addPath(path)
+            context.setFillColor(CGColor(gray: 1, alpha: 1))
+            context.fillPath()
+            context.restoreGState()
+
+            context.addPath(path)
+            context.setStrokeColor(CGColor(gray: 0.5, alpha: 1))
+            context.setLineWidth(0.8)
+            context.strokePath()
+
+            return true
+        }
+        image.isTemplate = false
+        return image
+    }()
 }

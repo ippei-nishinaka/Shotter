@@ -33,6 +33,10 @@ final class SettingsModel: ObservableObject {
         didSet { Preferences.afterCaptureAction = afterCaptureAction }
     }
 
+    @Published var addsShadowByDefault: Bool {
+        didSet { Preferences.addsShadowByDefault = addsShadowByDefault }
+    }
+
     @Published var imageFormat: ImageFormat {
         didSet { Preferences.imageFormat = imageFormat }
     }
@@ -69,6 +73,7 @@ final class SettingsModel: ObservableObject {
         windowHotKey = Preferences.windowHotKey
         textHotKey = Preferences.textRecognitionHotKey
         afterCaptureAction = Preferences.afterCaptureAction
+        addsShadowByDefault = Preferences.addsShadowByDefault
         imageFormat = Preferences.imageFormat
         jpegQuality = Preferences.jpegQuality
         loginItemMessage = message(for: LoginItemManager.state)
@@ -176,6 +181,14 @@ struct SettingsView: View {
                         }
                     }
                     Text(model.afterCaptureAction.detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle("最初から影を付ける", isOn: $model.addsShadowByDefault)
+                    Text("オフでも、エディタで S キーを押せばその 1 枚だけ影を付けられます。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)

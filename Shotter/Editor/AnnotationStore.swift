@@ -47,10 +47,12 @@ final class AnnotationStore: ObservableObject {
     @Published private(set) var redoStack: [[Annotation]] = []
 
     /// 画像の周りに影を付けるか。注釈の座標系には影響しない（描画時だけ余白を足す）。
-    @Published var hasShadow: Bool = Preferences.addsShadow {
+    ///
+    /// 初期値は設定の「最初から影を付ける」に従う。
+    /// エディタでの切り替えはこの 1 枚だけに効き、設定そのものは変えない。
+    @Published var hasShadow: Bool = Preferences.addsShadowByDefault {
         didSet {
             guard hasShadow != oldValue else { return }
-            Preferences.addsShadow = hasShadow
             didChange()
         }
     }
