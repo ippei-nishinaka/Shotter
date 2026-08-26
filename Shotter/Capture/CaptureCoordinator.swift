@@ -108,6 +108,11 @@ final class CaptureCoordinator {
 
         lastCapturedImage = image
 
+        // 注釈を付ける前の状態を履歴に残す。
+        if purpose == .screenshot {
+            HistoryStore.shared.save(image)
+        }
+
         guard purpose == .screenshot else {
             await recognizeText(in: image)
             return

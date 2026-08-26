@@ -15,6 +15,7 @@ enum Preferences {
         static let hasCompletedOnboarding = "hasCompletedOnboarding"
         static let addsShadowByDefault = "addsShadowByDefault"
         static let roundsCornersByDefault = "roundsCornersByDefault"
+        static let historyRetention = "historyRetentionDays"
     }
 
     private static var defaults: UserDefaults { .standard }
@@ -52,6 +53,19 @@ enum Preferences {
     static var roundsCornersByDefault: Bool {
         get { defaults.bool(forKey: Key.roundsCornersByDefault) }
         set { defaults.set(newValue, forKey: Key.roundsCornersByDefault) }
+    }
+
+    /// 履歴の保持期間（既定は 2 週間）。
+    static var historyRetention: HistoryRetention {
+        get {
+            guard let stored = defaults.object(forKey: Key.historyRetention) as? Int,
+                  let retention = HistoryRetention(rawValue: stored)
+            else { return .default }
+            return retention
+        }
+        set {
+            defaults.set(newValue.rawValue, forKey: Key.historyRetention)
+        }
     }
 
     /// 初回起動時の案内を表示済みか。

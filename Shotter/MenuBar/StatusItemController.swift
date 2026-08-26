@@ -67,6 +67,17 @@ final class StatusItemController: NSObject {
 
         menu.addItem(.separator())
 
+        let history = NSMenuItem(
+            title: "履歴…",
+            action: #selector(openHistory),
+            keyEquivalent: ""
+        )
+        history.target = self
+        history.toolTip = "撮影した画像を後から取り出せます"
+        menu.addItem(history)
+
+        menu.addItem(.separator())
+
         let permission = NSMenuItem(
             title: "画面収録の権限…",
             action: #selector(openPermissionGuide),
@@ -116,6 +127,10 @@ final class StatusItemController: NSObject {
 
     @objc private func openPreferences() {
         SettingsWindowController.show()
+    }
+
+    @objc private func openHistory() {
+        HistoryWindowController.show()
     }
 
     @objc private func openPermissionGuide() {

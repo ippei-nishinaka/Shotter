@@ -41,6 +41,15 @@ final class SettingsModel: ObservableObject {
         didSet { Preferences.roundsCornersByDefault = roundsCornersByDefault }
     }
 
+    @Published var historyRetention: HistoryRetention {
+        didSet {
+            guard historyRetention != oldValue else { return }
+            Preferences.historyRetention = historyRetention
+            // 期間を短くした（または保存しないに変えた）ときは、その場で削除する。
+            HistoryStore.shared.purgeExpired()
+        }
+    }
+
     @Published var imageFormat: ImageFormat {
         didSet { Preferences.imageFormat = imageFormat }
     }
@@ -79,6 +88,7 @@ final class SettingsModel: ObservableObject {
         afterCaptureAction = Preferences.afterCaptureAction
         addsShadowByDefault = Preferences.addsShadowByDefault
         roundsCornersByDefault = Preferences.roundsCornersByDefault
+        historyRetention = Preferences.historyRetention
         imageFormat = Preferences.imageFormat
         jpegQuality = Preferences.jpegQuality
         loginItemMessage = message(for: LoginItemManager.state)
@@ -201,6 +211,24 @@ struct SettingsView: View {
                 }
             } header: {
                 Text("撮影")
+            }
+
+            Section {
+                VStack(alignment: .leading, spacing: 4) {
+                    Picker("保持期間", selection: $model.historyRetention) {
+                        ForEach(HistoryRetention.allCases) { retention in
+                            Text(retention.title).tag(retention)
+                        }
+                    }
+                    Text("期間を過ぎた画像は、起動時と設定変更時にディスクから削除されます。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Button("履歴を開く") { HistoryWindowController.show() }
+            } header: {
+                Text("履歴")
             }
 
             Section {

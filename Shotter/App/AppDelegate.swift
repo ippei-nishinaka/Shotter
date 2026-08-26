@@ -18,6 +18,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         #endif
         statusItemController = StatusItemController()
+
+        // 保持期間を過ぎた履歴をファイルごと削除する。
+        let purged = HistoryStore.shared.purgeExpired()
+        #if DEBUG
+        if purged > 0 { DebugSupport.log("期限切れの履歴を \(purged) 件削除しました") }
+        #endif
         OnboardingWindowController.showIfNeeded()
 
         #if DEBUG
@@ -35,6 +41,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         if CommandLine.arguments.contains("--debug-ocr") {
             DebugSupport.runOCRCheckAndQuit()
+            return
+        }
+        if CommandLine.arguments.contains("--debug-history-window") {
+            DebugSupport.dumpHistoryWindowAndQuit()
+            return
+        }
+        if CommandLine.arguments.contains("--debug-history") {
+            DebugSupport.testHistoryPurgeAndQuit()
             return
         }
         if CommandLine.arguments.contains("--debug-window-capture") {

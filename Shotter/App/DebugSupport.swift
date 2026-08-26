@@ -556,6 +556,161 @@ enum DebugSupport {
         }
     }
 
+    /// `--debug-history-window <path>` で、ダミーを入れた履歴ウィンドウを書き出す。
+    /// 書き出したあとダミーは片付ける。
+    @MainActor
+    static func dumpHistoryWindowAndQuit() {
+        let store = HistoryStore.shared
+        let original = Preferences.historyRetention
+        Preferences.historyRetention = .twoWeeks
+
+        var created: [URL] = []
+        let day: TimeInterval = 24 * 60 * 60
+        for (index, daysAgo) in [0.0, 0.2, 1.0, 3.0, 6.0, 11.0].enumerated() {
+            guard let image = sampleTile(index: index) else { continue }
+            let date = Date().addingTimeInterval(-daysAgo * day)
+            if let url = store.save(image, date: date) {
+                try? FileManager.default.setAttributes(
+                    [.creationDate: date, .modificationDate: date], ofItemAtPath: url.path
+                )
+                created.append(url)
+            }
+        }
+        store.reload()
+
+        HistoryWindowController.show()
+
+        guard let path = canvasDumpPath else { NSApp.terminate(nil); return }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_800_000_000)
+
+            if let window = NSApp.windows.first(where: { $0.title == "Shotter の履歴" && $0.isVisible }),
+               let content = window.contentView,
+               let rep = content.bitmapImageRepForCachingDisplay(in: content.bounds) {
+                content.cacheDisplay(in: content.bounds, to: rep)
+                if let png = rep.representation(using: .png, properties: [:]) {
+                    try? png.write(to: URL(fileURLWithPath: path))
+                    log("履歴ウィンドウを書き出しました: \(path)")
+                }
+            } else {
+                log("履歴ウィンドウが見つかりませんでした")
+            }
+
+            for url in created { try? FileManager.default.removeItem(at: url) }
+            Preferences.historyRetention = original
+            log("ダミーを片付けました")
+            NSApp.terminate(nil)
+        }
+    }
+
+    /// 履歴の見分けが付くよう、色違いのタイル画像を作る。
+    private static func sampleTile(index: Int) -> CGImage? {
+        let width = 800, height = 500
+        guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+              let context = CGContext(
+                data: nil, width: width, height: height,
+                bitsPerComponent: 8, bytesPerRow: 0, space: colorSpace,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+              )
+        else { return nil }
+
+        let hue = CGFloat(index) / 6
+        context.setFillColor(NSColor(hue: hue, saturation: 0.45, brightness: 0.85, alpha: 1).cgColor)
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+
+        context.setFillColor(CGColor(gray: 1, alpha: 0.9))
+        context.fill(CGRect(x: 60, y: 180, width: 680, height: 40))
+        context.fill(CGRect(x: 60, y: 260, width: 420, height: 40))
+        return context.makeImage()
+    }
+
+    /// `--debug-history <path>` で、履歴の保持期間による削除を検証する。
+    /// 作成日を遡らせたダミーを置いて purgeExpired を通し、結果を書き出す。
+    @MainActor
+    static func testHistoryPurgeAndQuit() {
+        let outputPath: String? = {
+            guard let index = CommandLine.arguments.firstIndex(of: "--debug-history"),
+                  CommandLine.arguments.indices.contains(index + 1)
+            else { return nil }
+            return CommandLine.arguments[index + 1]
+        }()
+
+        var report: [String] = []
+        func record(_ line: String) {
+            report.append(line)
+            log(line)
+            if let outputPath {
+                try? report.joined(separator: "\n").write(
+                    toFile: outputPath, atomically: true, encoding: .utf8
+                )
+            }
+        }
+
+        let store = HistoryStore.shared
+        let existing = { () -> Int in store.reload(); return store.items.count }()
+        record("開始時の履歴: \(existing) 件")
+        record("保存先: \(store.directory.path)")
+
+        guard let image = solidImage(width: 200, height: 120) else {
+            record("テスト画像を作れませんでした")
+            NSApp.terminate(nil)
+            return
+        }
+
+        // 「保存しない」設定だと save が何もしないので、検証用に 2 週間へ寄せる。
+        let original = Preferences.historyRetention
+        Preferences.historyRetention = .twoWeeks
+
+        let day: TimeInterval = 24 * 60 * 60
+        let cases: [(label: String, daysAgo: Double, shouldSurvive: Bool)] = [
+            ("今日", 0, true),
+            ("5 日前", 5, true),
+            ("13 日前", 13, true),
+            ("15 日前", 15, false),
+            ("30 日前", 30, false),
+        ]
+
+        var created: [String: URL] = [:]
+        for testCase in cases {
+            let date = Date().addingTimeInterval(-testCase.daysAgo * day)
+            guard let url = store.save(image, date: date) else { continue }
+            // 作成日を遡らせる（判定は作成日で行うため）。
+            try? FileManager.default.setAttributes(
+                [.creationDate: date, .modificationDate: date],
+                ofItemAtPath: url.path
+            )
+            created[testCase.label] = url
+        }
+        record("ダミーを \(created.count) 件作成しました")
+
+        let removed = store.purgeExpired()
+        record("purgeExpired が削除した件数: \(removed)")
+        record("")
+
+        var allPassed = true
+        for testCase in cases {
+            guard let url = created[testCase.label] else { continue }
+            let exists = FileManager.default.fileExists(atPath: url.path)
+            let passed = exists == testCase.shouldSurvive
+            allPassed = allPassed && passed
+            record("\(passed ? "✓" : "✗") \(testCase.label): "
+                + "\(exists ? "残っている" : "削除された")"
+                + " （期待: \(testCase.shouldSurvive ? "残る" : "消える")）")
+        }
+        record("")
+        record(allPassed ? "→ 保持期間の判定は正しく動いています" : "→ 判定に誤りがあります")
+
+        // 後片付け: 検証で作ったファイルを消し、設定も戻す。
+        for url in created.values {
+            try? FileManager.default.removeItem(at: url)
+        }
+        Preferences.historyRetention = original
+        store.reload()
+        record("後片付け後の履歴: \(store.items.count) 件")
+
+        NSApp.terminate(nil)
+    }
+
     /// `--debug-windows` でウィンドウ一覧を標準エラーへ出して終了する。
     @MainActor
     static func dumpWindowListAndQuit() {
