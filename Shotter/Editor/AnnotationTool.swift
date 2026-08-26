@@ -101,10 +101,10 @@ enum AnnotationTool: String, CaseIterable, Identifiable {
         case .line:            return "line.diagonal"
         case .freehand:        return "scribble"
         case .highlight:       return "highlighter"
-        case .text:            return "textformat"
+        case .text:            return "character"
         case .pixelate:        return "mosaic"
         case .spotlight:       return "flashlight.on.fill"
-        case .counter:         return "number.circle.fill"
+        case .counter:         return "1.circle.fill"
         }
     }
 

@@ -58,9 +58,6 @@ struct EditorToolbarView: View {
     var body: some View {
         HStack(spacing: 8) {
             toolGroup
-            // ナンバリングと影の間は仕切らない（見た目のオプションも同じ並びに置く）。
-            shadowToggle
-            cornerToggle
             Divider().frame(height: 20)
             colorGroup
             Divider().frame(height: 20)
@@ -84,6 +81,8 @@ struct EditorToolbarView: View {
 
     // MARK: - グループ
 
+    /// ツールと見た目のオプションを同じ間隔で並べる。
+    /// 別々の HStack に分けると、そこだけ間隔が広く見えてしまう。
     private var toolGroup: some View {
         HStack(spacing: 2) {
             ForEach(AnnotationTool.allCases) { tool in
@@ -93,6 +92,8 @@ struct EditorToolbarView: View {
                     action: { store.tool = tool }
                 )
             }
+            shadowToggle
+            cornerToggle
         }
     }
 
@@ -102,6 +103,9 @@ struct EditorToolbarView: View {
             store.hasShadow.toggle()
         } label: {
             Image(nsImage: ShadowToggleIcon.image)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 16, height: 16)
                 .frame(width: 26, height: 24)
                 .background(
                     RoundedRectangle(cornerRadius: 5)
@@ -123,6 +127,9 @@ struct EditorToolbarView: View {
             store.hasRoundedCorners.toggle()
         } label: {
             Image(nsImage: RoundedCornerToggleIcon.image)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 16, height: 16)
                 .frame(width: 26, height: 24)
                 .background(
                     RoundedRectangle(cornerRadius: 5)
@@ -344,6 +351,9 @@ private struct ToolButton: View {
     var body: some View {
         Button(action: action) {
             Image(nsImage: Self.symbolImage(for: tool))
+                .resizable()
+                .scaledToFit()
+                .frame(width: 16, height: 16)
                 .frame(width: 26, height: 24)
                 .background(
                     RoundedRectangle(cornerRadius: 5)
