@@ -133,7 +133,7 @@ struct EditorToolbarView: View {
         .buttonStyle(.plain)
         .instantTooltip(
             title: "角を丸める（Round）",
-            shortcut: "O",
+            shortcut: "R",
             detail: "画像の四隅を丸くします。ウィンドウを撮ったときは元から丸いので、範囲キャプチャ向けです。",
             forceVisible: isTooltipForced("角を丸める（Round）")
         )
@@ -298,9 +298,31 @@ struct EditorToolbarView: View {
                 shortcut: "⌘S",
                 detail: "PNG または JPEG を選んで保存します。"
             )
+
+            menuButton
         }
         .controlSize(.regular)
         .fixedSize()
+    }
+
+    /// 履歴・設定・About をまとめたメニュー。
+    private var menuButton: some View {
+        Menu {
+            Button("履歴…") { HistoryWindowController.show() }
+            Button("設定…") { SettingsWindowController.show() }
+            Divider()
+            Button("Shotter について") { AboutWindowController.show() }
+        } label: {
+            Image(systemName: "line.3.horizontal")
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .instantTooltip(
+            title: "メニュー",
+            detail: "履歴・設定・アプリ情報を開きます。",
+            forceVisible: isTooltipForced("メニュー")
+        )
     }
 
     private var colorBinding: Binding<Color> {

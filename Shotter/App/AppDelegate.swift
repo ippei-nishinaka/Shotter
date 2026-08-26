@@ -33,6 +33,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if DebugSupport.shouldOpenSettings {
             DebugSupport.openSettingsAndDump()
         }
+        if DebugSupport.shouldOpenAbout {
+            DebugSupport.openAboutAndDump()
+        }
         if DebugSupport.shouldOpenOnboarding {
             DebugSupport.openOnboardingAndDump()
         }

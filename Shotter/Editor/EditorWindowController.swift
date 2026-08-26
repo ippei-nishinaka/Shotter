@@ -153,12 +153,12 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSMenu
             return false
         }
 
-        // S と O は描画ツールではなく、見た目のオプション。
+        // S と R は描画ツールではなく、見た目のオプション。
         if character == "s" {
             store.hasShadow.toggle()
             return true
         }
-        if character == "o" {
+        if character == "r" {
             store.hasRoundedCorners.toggle()
             return true
         }

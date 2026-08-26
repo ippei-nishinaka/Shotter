@@ -797,6 +797,16 @@ enum DebugSupport {
         }
     }
 
+    static var shouldOpenAbout: Bool {
+        CommandLine.arguments.contains("--debug-about")
+    }
+
+    @MainActor
+    static func openAboutAndDump() {
+        AboutWindowController.show()
+        dumpWindowAndQuit(titled: "Shotter について")
+    }
+
     static var shouldOpenOnboarding: Bool {
         CommandLine.arguments.contains("--debug-onboarding")
     }

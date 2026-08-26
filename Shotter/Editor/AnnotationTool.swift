@@ -39,7 +39,7 @@ enum AnnotationTool: String, CaseIterable, Identifiable {
         switch self {
         case .select:          return "Edit"
         case .arrow:           return "Arrow"
-        case .rectangle:       return "Rectangle"
+        case .rectangle:       return "Outline"
         case .filledRectangle: return "Block"
         case .ellipse:         return "Circle"
         case .line:            return "Line"
@@ -60,7 +60,7 @@ enum AnnotationTool: String, CaseIterable, Identifiable {
         case .arrow:
             return "ドラッグで矢印を引きます。Shift で 45 度ずつに固定。"
         case .rectangle:
-            return "ドラッグで枠だけの四角を描きます。Shift で正方形。"
+            return "ドラッグで枠だけの四角を描きます（塗りは Block／B）。Shift で正方形。"
         case .filledRectangle:
             return "ドラッグで塗りつぶしの四角を描きます。Shift で正方形。"
         case .ellipse:
@@ -124,7 +124,7 @@ enum AnnotationTool: String, CaseIterable, Identifiable {
         switch self {
         case .select:          return "e"
         case .arrow:           return "a"
-        case .rectangle:       return "r"
+        case .rectangle:       return "o"
         case .filledRectangle: return "b"
         case .ellipse:         return "c"
         case .line:            return "l"
