@@ -16,6 +16,12 @@ enum Preferences {
         static let addsShadowByDefault = "addsShadowByDefault"
         static let roundsCornersByDefault = "roundsCornersByDefault"
         static let historyRetention = "historyRetentionDays"
+        static let lineWidth = "annotationLineWidth"
+        static let fontSize = "annotationFontSize"
+        static let shadowStrength = "annotationShadowStrength"
+        static let cornerRoundness = "annotationCornerRoundness"
+        static let pixelateIntensity = "annotationPixelateIntensity"
+        static let closesEditorOnCopyOrSave = "closesEditorOnCopyOrSave"
     }
 
     private static var defaults: UserDefaults { .standard }
@@ -53,6 +59,12 @@ enum Preferences {
     static var roundsCornersByDefault: Bool {
         get { defaults.bool(forKey: Key.roundsCornersByDefault) }
         set { defaults.set(newValue, forKey: Key.roundsCornersByDefault) }
+    }
+
+    /// コピー／保存を押したら注釈エディタのウィンドウを閉じるか（既定は ON）。
+    static var closesEditorOnCopyOrSave: Bool {
+        get { defaults.object(forKey: Key.closesEditorOnCopyOrSave) as? Bool ?? true }
+        set { defaults.set(newValue, forKey: Key.closesEditorOnCopyOrSave) }
     }
 
     /// 履歴の保持期間（既定は 2 週間）。
@@ -109,6 +121,36 @@ enum Preferences {
         }
     }
 
+    /// 注釈の線の太さ。最後に変えた値を次回も使う。
+    static var lineWidth: CGFloat {
+        get { CGFloat(defaults.object(forKey: Key.lineWidth) as? Double ?? 4) }
+        set { defaults.set(Double(newValue), forKey: Key.lineWidth) }
+    }
+
+    /// テキスト・ナンバリングの文字サイズ。最後に変えた値を次回も使う。
+    static var fontSize: CGFloat {
+        get { CGFloat(defaults.object(forKey: Key.fontSize) as? Double ?? 24) }
+        set { defaults.set(Double(newValue), forKey: Key.fontSize) }
+    }
+
+    /// 影の強さ。最後に変えた値を次回も使う。
+    static var shadowStrength: CGFloat {
+        get { CGFloat(defaults.object(forKey: Key.shadowStrength) as? Double ?? 1) }
+        set { defaults.set(Double(newValue), forKey: Key.shadowStrength) }
+    }
+
+    /// 角の丸さ。最後に変えた値を次回も使う。
+    static var cornerRoundness: CGFloat {
+        get { CGFloat(defaults.object(forKey: Key.cornerRoundness) as? Double ?? Double(ImageMask.roundedCornerRadius)) }
+        set { defaults.set(Double(newValue), forKey: Key.cornerRoundness) }
+    }
+
+    /// モザイク／ぼかしの強さ。最後に変えた値を次回も使う。
+    static var pixelateIntensity: CGFloat {
+        get { CGFloat(defaults.object(forKey: Key.pixelateIntensity) as? Double ?? 1) }
+        set { defaults.set(Double(newValue), forKey: Key.pixelateIntensity) }
+    }
+
     static var jpegQuality: CGFloat {
         get {
             let value = defaults.object(forKey: Key.jpegQuality) as? Double
@@ -131,7 +173,7 @@ enum AfterCaptureAction: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .thumbnail:  return "コピーしてサムネイルを表示"
+        case .thumbnail:  return "クリップボードに入れてサムネイルを表示"
         case .openEditor: return "すぐに注釈エディタを開く"
         case .copyOnly:   return "クリップボードにコピーだけする"
         }

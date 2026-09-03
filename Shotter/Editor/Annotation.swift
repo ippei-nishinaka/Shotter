@@ -64,6 +64,8 @@ struct AnnotationRenderEnvironment {
     let imageSize: CGSize
     /// 連番に表示する番号。描画直前に並び順から算出する。
     var counterNumbers: [UUID: Int] = [:]
+    /// 連番の開始番号。途中の手順から振り始めたいときに変更する。
+    var counterStartNumber: Int = 1
 }
 
 /// ドラッグで作られる注釈。マウスダウンで生成し、ドラッグ中に終点を更新していく。

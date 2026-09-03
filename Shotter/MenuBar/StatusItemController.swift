@@ -96,6 +96,14 @@ final class StatusItemController: NSObject {
 
         menu.addItem(.separator())
 
+        let relaunch = NSMenuItem(
+            title: "Shotter を再起動",
+            action: #selector(relaunch),
+            keyEquivalent: ""
+        )
+        relaunch.target = self
+        menu.addItem(relaunch)
+
         let quit = NSMenuItem(
             title: "Shotter を終了",
             action: #selector(NSApplication.terminate(_:)),
@@ -135,5 +143,13 @@ final class StatusItemController: NSObject {
 
     @objc private func openPermissionGuide() {
         OnboardingWindowController.show()
+    }
+
+    /// 新しいプロセスを立ち上げてから自分を終了する。
+    @objc private func relaunch() {
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.createsNewApplicationInstance = true
+        NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: configuration) { _, _ in }
+        NSApp.terminate(nil)
     }
 }

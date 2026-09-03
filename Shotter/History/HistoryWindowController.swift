@@ -147,7 +147,9 @@ private struct HistoryCell: View {
         let scale = NSScreen.main?.backingScaleFactor ?? 2
         EditorWindowController.present(
             image: image,
-            pointSize: CGSize(width: CGFloat(image.width) / scale, height: CGFloat(image.height) / scale)
+            pointSize: CGSize(width: CGFloat(image.width) / scale, height: CGFloat(image.height) / scale),
+            historyURL: item.url,
+            document: store.loadDocument(for: item)
         )
     }
 

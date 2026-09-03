@@ -6,6 +6,8 @@
 	<string>ja</string>
 	<key>CFBundleExecutable</key>
 	<string>Shotter</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.ippei.Shotter</string>
 	<key>CFBundleInfoDictionaryVersion</key>
