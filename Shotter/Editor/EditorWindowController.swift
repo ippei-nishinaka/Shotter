@@ -15,8 +15,13 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSMenu
     private var keyMonitor: Any?
 
     @discardableResult
-    static func present(image: CGImage, pointSize: CGSize) -> EditorWindowController {
-        let controller = EditorWindowController(image: image, pointSize: pointSize)
+    static func present(
+        image: CGImage,
+        pointSize: CGSize,
+        historyURL: URL? = nil,
+        document: AnnotationDocument? = nil
+    ) -> EditorWindowController {
+        let controller = EditorWindowController(image: image, pointSize: pointSize, historyURL: historyURL, document: document)
         openControllers.append(controller)
 
         NSApp.activate(ignoringOtherApps: true)
@@ -27,8 +32,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSMenu
         return controller
     }
 
-    private init(image: CGImage, pointSize: CGSize) {
-        store = AnnotationStore(image: image, pointSize: pointSize)
+    private init(image: CGImage, pointSize: CGSize, historyURL: URL? = nil, document: AnnotationDocument? = nil) {
+        store = AnnotationStore(image: image, pointSize: pointSize, historyURL: historyURL, document: document)
 
         let window = NSWindow(
             contentRect: CGRect(origin: .zero, size: CGSize(width: 900, height: 600)),
@@ -232,6 +237,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSMenu
     // MARK: - NSWindowDelegate
 
     func windowWillClose(_ notification: Notification) {
+        store.flushPendingAutosave()
         removeKeyMonitor()
         Self.openControllers.removeAll { $0 === self }
     }
@@ -248,6 +254,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSMenu
             return
         }
         HUDPresenter.show("クリップボードにコピーしました", symbolName: "checkmark.circle.fill")
+        closeIfConfigured()
     }
 
     private func saveToFile() {
@@ -256,14 +263,21 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSMenu
             return
         }
 
-        ImageSavePanel.present(image: flattened, in: window) { result in
+        ImageSavePanel.present(image: flattened, in: window) { [weak self] result in
             switch result {
             case .success(let url):
                 HUDPresenter.show("保存しました: \(url.lastPathComponent)", symbolName: "checkmark.circle.fill")
+                self?.closeIfConfigured()
             case .failure(let error):
                 AlertPresenter.showError(error)
             }
         }
+    }
+
+    /// 設定が ON なら、コピー・保存の直後にウィンドウを閉じる。
+    private func closeIfConfigured() {
+        guard Preferences.closesEditorOnCopyOrSave else { return }
+        window?.close()
     }
 
     /// 画像の等倍サイズを基準に、画面に収まる範囲でウィンドウサイズを決める。

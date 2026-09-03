@@ -75,7 +75,7 @@ enum AnnotationRenderer {
         environment: AnnotationRenderEnvironment
     ) {
         var environment = environment
-        environment.counterNumbers = counterNumbers(in: annotations)
+        environment.counterNumbers = counterNumbers(in: annotations, startingAt: environment.counterStartNumber)
 
         let spotlights = annotations.compactMap { $0 as? SpotlightAnnotation }
         var didDrawSpotlights = false
@@ -96,9 +96,9 @@ enum AnnotationRenderer {
     }
 
     /// 連番の番号は配列の並び順で決まる。削除すると自動的に繰り上がる。
-    nonisolated static func counterNumbers(in annotations: [Annotation]) -> [UUID: Int] {
+    nonisolated static func counterNumbers(in annotations: [Annotation], startingAt start: Int = 1) -> [UUID: Int] {
         var numbers: [UUID: Int] = [:]
-        var next = 1
+        var next = start
         for annotation in annotations where annotation is CounterAnnotation {
             numbers[annotation.id] = next
             next += 1

@@ -74,6 +74,32 @@ final class HistoryStore: ObservableObject {
         return url
     }
 
+    // MARK: - 注釈（オブジェクトのまま保存）
+
+    /// 画像と対になる注釈のサイドカー。`Shotter-....png` に対して `Shotter-....json`。
+    private func annotationsURL(for imageURL: URL) -> URL {
+        imageURL.deletingPathExtension().appendingPathExtension("json")
+    }
+
+    /// 編集内容をオブジェクトのまま書き出す。ラスターへ焼き込まないので、
+    /// 次に開いたときも引き続き動かしたり編集し直したりできる。
+    @discardableResult
+    func saveDocument(_ document: AnnotationDocument, for imageURL: URL) -> Bool {
+        do {
+            let data = try JSONEncoder().encode(document)
+            try data.write(to: annotationsURL(for: imageURL), options: .atomic)
+            thumbnailCache[imageURL.lastPathComponent] = nil
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    func loadDocument(for item: HistoryItem) -> AnnotationDocument? {
+        guard let data = try? Data(contentsOf: annotationsURL(for: item.url)) else { return nil }
+        return try? JSONDecoder().decode(AnnotationDocument.self, from: data)
+    }
+
     /// 同じ秒に複数撮ってもぶつからないよう、ミリ秒まで入れる。
     private func fileName(for date: Date) -> String {
         let formatter = DateFormatter()
@@ -137,6 +163,7 @@ final class HistoryStore: ObservableObject {
     func delete(_ item: HistoryItem, reloading: Bool = true) -> Bool {
         do {
             try fileManager.removeItem(at: item.url)
+            try? fileManager.removeItem(at: annotationsURL(for: item.url))
             thumbnailCache[item.id] = nil
             if reloading { reload() }
             return true
@@ -161,9 +188,17 @@ final class HistoryStore: ObservableObject {
         return CGImageSourceCreateImageAtIndex(source, 0, nil)
     }
 
-    /// 一覧用の縮小画像。全体を読み込まずに済むよう ImageIO に作らせる。
+    /// 一覧用の縮小画像。編集済みなら注釈も乗せた見た目にする。
     func thumbnail(for item: HistoryItem, maxPixelSize: Int = 480) -> NSImage? {
         if let cached = thumbnailCache[item.id] { return cached }
+
+        if let document = loadDocument(for: item), !document.annotations.isEmpty {
+            if let flattened = flattenedImage(for: item, document: document),
+               let scaled = Self.resizedThumbnail(of: flattened, maxPixelSize: maxPixelSize) {
+                thumbnailCache[item.id] = scaled
+                return scaled
+            }
+        }
 
         guard let source = CGImageSourceCreateWithURL(item.url as CFURL, nil) else { return nil }
         let options: [CFString: Any] = [
@@ -181,6 +216,44 @@ final class HistoryStore: ObservableObject {
         )
         thumbnailCache[item.id] = image
         return image
+    }
+
+    /// 元画像の上に注釈を焼き込んだもの（表示専用。ファイルには書き出さない）。
+    private func flattenedImage(for item: HistoryItem, document: AnnotationDocument) -> CGImage? {
+        guard let base = image(for: item) else { return nil }
+        let store = AnnotationStore(
+            image: base,
+            pointSize: CGSize(width: base.width, height: base.height),
+            document: document
+        )
+        return AnnotationRenderer.flatten(store)
+    }
+
+    /// CGContext で描き直して縮小する。ImageIO のサムネイル API は元がファイルにある前提のため、
+    /// メモリ上でしか存在しないフラット化済み画像にはこちらを使う。
+    private static func resizedThumbnail(of image: CGImage, maxPixelSize: Int) -> NSImage? {
+        let longestSide = CGFloat(max(image.width, image.height))
+        let scale = min(1, CGFloat(maxPixelSize) / longestSide)
+        let width = max(1, Int((CGFloat(image.width) * scale).rounded()))
+        let height = max(1, Int((CGFloat(image.height) * scale).rounded()))
+
+        guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+              let context = CGContext(
+                data: nil,
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: 0,
+                space: colorSpace,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+              )
+        else { return nil }
+
+        context.interpolationQuality = .high
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        guard let resized = context.makeImage() else { return nil }
+
+        return NSImage(cgImage: resized, size: NSSize(width: width / 2, height: height / 2))
     }
 
     func revealInFinder(_ item: HistoryItem) {

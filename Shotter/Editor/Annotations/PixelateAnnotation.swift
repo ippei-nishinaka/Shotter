@@ -4,7 +4,7 @@ import CoreImage
 /// 指定範囲を下地の画像ごとモザイク／ぼかしで潰す。機密情報を隠す用途。
 final class PixelateAnnotation: TwoPointAnnotation {
 
-    enum Mode: String, CaseIterable, Identifiable {
+    enum Mode: String, CaseIterable, Identifiable, Codable {
         case pixelate
         case blur
 

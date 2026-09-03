@@ -14,8 +14,30 @@ struct ToolOptionsBar: View {
         case .select:   return "注釈をクリックすると、色や太さを変えられます"
         case .ellipse:  return "円に固有のオプションはありません"
         case .freehand: return "フリーハンドに固有のオプションはありません"
-        case .counter:  return "大きさはツールバーのスライダーで変えられます"
+        case .counter:  return ""
         default:        return ""
+        }
+    }
+
+    /// 編集ツールで注釈を選んでいるときは、その注釈の種類のオプションを出す。
+    private var effectiveTool: AnnotationTool {
+        guard store.tool == .select, let selection = store.selectedAnnotation else { return store.tool }
+        return tool(for: selection) ?? .select
+    }
+
+    private func tool(for annotation: Annotation) -> AnnotationTool? {
+        switch annotation {
+        case is ArrowAnnotation:                                    return .arrow
+        case let rectangle as RectangleAnnotation:                  return rectangle.isFilled ? .filledRectangle : .rectangle
+        case is EllipseAnnotation:                                  return .ellipse
+        case is LineAnnotation:                                     return .line
+        case is FreehandAnnotation:                                 return .freehand
+        case is HighlightAnnotation:                                return .highlight
+        case is TextAnnotation:                                     return .text
+        case is PixelateAnnotation:                                 return .pixelate
+        case is SpotlightAnnotation:                                return .spotlight
+        case is CounterAnnotation:                                  return .counter
+        default:                                                    return nil
         }
     }
 
@@ -24,7 +46,7 @@ struct ToolOptionsBar: View {
             toolOptions
 
             if store.hasShadow {
-                if options(for: store.tool) != .none { divider }
+                if options(for: effectiveTool) != .none { divider }
                 sliderRow(
                     label: "影の強さ",
                     value: $store.shadowStrength,
@@ -34,7 +56,7 @@ struct ToolOptionsBar: View {
             }
 
             if store.hasRoundedCorners {
-                if options(for: store.tool) != .none || store.hasShadow { divider }
+                if options(for: effectiveTool) != .none || store.hasShadow { divider }
                 sliderRow(
                     label: "角の丸さ",
                     value: $store.cornerRoundness,
@@ -61,6 +83,7 @@ struct ToolOptionsBar: View {
         case line
         case text
         case pixelate
+        case counter
     }
 
     private func options(for tool: AnnotationTool) -> OptionKind {
@@ -71,13 +94,14 @@ struct ToolOptionsBar: View {
         case .line:                                   return .line
         case .text:                                   return .text
         case .pixelate:                               return .pixelate
-        case .select, .ellipse, .freehand, .counter:  return .none
+        case .counter:                                return .counter
+        case .select, .ellipse, .freehand:            return .none
         }
     }
 
     @ViewBuilder
     private var toolOptions: some View {
-        switch options(for: store.tool) {
+        switch options(for: effectiveTool) {
         case .arrow:
             labeled("矢じり") {
                 Picker("", selection: $store.arrowHeadStyle) {
@@ -126,6 +150,15 @@ struct ToolOptionsBar: View {
                 range: 0.4...3,
                 format: { String(format: "%.1f×", $0) }
             )
+
+        case .counter:
+            labeled("開始番号") {
+                TextField("", value: $store.counterStartNumber, formatter: Self.integerFormatter)
+                    .frame(width: 40)
+                Stepper("", value: $store.counterStartNumber, in: 1...9999)
+                    .labelsHidden()
+            }
+            .help("次に置く連番の開始番号。途中の手順から振り始めたいときに変えます")
 
         case .none:
             Text(placeholder)
@@ -208,18 +241,44 @@ struct ToolOptionsBar: View {
                 .foregroundStyle(.secondary)
             Slider(value: value, in: range)
                 .frame(width: 90)
-            Text(format(value.wrappedValue))
+            TextField("", value: clamped(value, in: range), formatter: Self.decimalFormatter(for: range))
                 .font(.system(size: 10, design: .monospaced))
-                .foregroundStyle(.secondary)
-                .frame(width: 34, alignment: .leading)
+                .multilineTextAlignment(.trailing)
+                .frame(width: 36)
         }
     }
+
+    /// テキストフィールドに直接入力された値を範囲内へ丸める。
+    private func clamped(_ value: Binding<CGFloat>, in range: ClosedRange<CGFloat>) -> Binding<CGFloat> {
+        Binding(
+            get: { value.wrappedValue },
+            set: { value.wrappedValue = min(max($0, range.lowerBound), range.upperBound) }
+        )
+    }
+
+    private static func decimalFormatter(for range: ClosedRange<CGFloat>) -> NumberFormatter {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = 1
+        formatter.minimum = NSNumber(value: Double(range.lowerBound))
+        formatter.maximum = NSNumber(value: Double(range.upperBound))
+        return formatter
+    }
+
+    private static let integerFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .none
+        formatter.minimum = 1
+        formatter.maximum = 9999
+        return formatter
+    }()
 
     // MARK: - Binding
 
     /// ツールごとに別々の「角を丸める」設定へつなぐ。
     private var roundingBinding: Binding<Bool> {
-        switch store.tool {
+        switch effectiveTool {
         case .rectangle:       return $store.roundsOutline
         case .filledRectangle: return $store.roundsBlock
         case .highlight:       return $store.roundsHighlight

@@ -1,7 +1,7 @@
 import AppKit
 
 /// 矢印の形。
-enum ArrowHeadStyle: String, CaseIterable, Identifiable {
+enum ArrowHeadStyle: String, CaseIterable, Identifiable, Codable {
     /// 塗りつぶした三角の矢じり。
     case filled
     /// 線だけで開いた矢じり。
@@ -21,7 +21,7 @@ enum ArrowHeadStyle: String, CaseIterable, Identifiable {
 }
 
 /// 線の種類。
-enum StrokeDashStyle: String, CaseIterable, Identifiable {
+enum StrokeDashStyle: String, CaseIterable, Identifiable, Codable {
     case solid
     case dotted
     case dashed
@@ -59,7 +59,7 @@ enum StrokeDashStyle: String, CaseIterable, Identifiable {
 }
 
 /// テキストの書体設定。
-struct TextTraits: Equatable {
+struct TextTraits: Equatable, Codable {
     /// nil はシステムフォント。
     var fontFamily: String?
     var isBold = false

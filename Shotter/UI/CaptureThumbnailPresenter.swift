@@ -206,6 +206,17 @@ enum CaptureThumbnailPresenter {
         }
     }
 
+    /// フェードを待たず即座に隠す。新しい撮影を始める直前など、
+    /// 「消えている」ことがすぐ確定していてほしい場面で使う。
+    static func dismissImmediately() {
+        model?.stop()
+        model = nil
+
+        guard let panel else { return }
+        self.panel = nil
+        panel.orderOut(nil)
+    }
+
     /// マウスのあるディスプレイの右下に置く。
     private static func frame(for size: CGSize) -> CGRect {
         let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) }

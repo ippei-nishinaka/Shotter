@@ -163,11 +163,36 @@ struct EditorToolbarView: View {
             }
             ColorPicker("色", selection: colorBinding, supportsOpacity: false)
                 .labelsHidden()
-                .frame(width: 46)
+                .fixedSize()
                 .instantTooltip(
-                    title: "任意の色を選ぶ",
-                    detail: "カラーピッカーから好きな色を指定できます。"
+                    title: "カラーピッカーから選ぶ",
+                    detail: "今の色（スウォッチの見た目）から、好きな色を細かく指定できます。"
                 )
+            Button(action: sampleColor) {
+                Image(systemName: "eyedropper")
+                    .frame(width: 22, height: 22)
+            }
+            .buttonStyle(.plain)
+            .padding(.leading, 5)
+            .instantTooltip(
+                title: "スポイトで色を選ぶ",
+                detail: "クリックすると、画面上の好きな場所から色を拾えます。"
+            )
+        }
+    }
+
+    private var colorBinding: Binding<Color> {
+        Binding(
+            get: { Color(nsColor: store.color) },
+            set: { store.color = NSColor($0) }
+        )
+    }
+
+    /// 画面上の任意のピクセルから色を拾う。
+    private func sampleColor() {
+        NSColorSampler().show { color in
+            guard let color else { return }
+            Task { @MainActor in store.color = color }
         }
     }
 
@@ -207,12 +232,28 @@ struct EditorToolbarView: View {
                 .foregroundStyle(.secondary)
             Slider(value: value, in: range)
                 .frame(width: 90)
-            Text("\(Int(value.wrappedValue))")
+            TextField("", value: clamped(value, in: range), formatter: Self.integerFormatter(for: range))
                 .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(.secondary)
-                .frame(width: 22, alignment: .trailing)
+                .multilineTextAlignment(.trailing)
+                .frame(width: 26)
         }
         .instantTooltip(title: help, detail: detailText, forceVisible: isTooltipForced(help))
+    }
+
+    /// テキストフィールドに直接入力された値を範囲内へ丸める。
+    private func clamped(_ value: Binding<CGFloat>, in range: ClosedRange<CGFloat>) -> Binding<CGFloat> {
+        Binding(
+            get: { value.wrappedValue },
+            set: { value.wrappedValue = min(max($0, range.lowerBound), range.upperBound) }
+        )
+    }
+
+    private static func integerFormatter(for range: ClosedRange<CGFloat>) -> NumberFormatter {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .none
+        formatter.minimum = NSNumber(value: Double(range.lowerBound))
+        formatter.maximum = NSNumber(value: Double(range.upperBound))
+        return formatter
     }
 
     private var historyGroup: some View {
@@ -321,12 +362,6 @@ struct EditorToolbarView: View {
         )
     }
 
-    private var colorBinding: Binding<Color> {
-        Binding(
-            get: { Color(nsColor: store.color) },
-            set: { store.color = NSColor($0) }
-        )
-    }
 }
 
 // MARK: - 部品

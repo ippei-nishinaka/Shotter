@@ -74,6 +74,11 @@ final class CaptureCoordinator {
             return
         }
 
+        // 前回のサムネイルが出ている途中で新しく撮り始めたら、紛らわしいので消す。
+        // なお写り込み防止そのものは ScreenCaptureService 側で自アプリのウィンドウを
+        // 撮影対象から除外しているので、ここでのタイミングには依存しない。
+        CaptureThumbnailPresenter.dismissImmediately()
+
         isBusy = true
         Task { [weak self] in
             guard let self else { return }
@@ -108,9 +113,10 @@ final class CaptureCoordinator {
 
         lastCapturedImage = image
 
-        // 注釈を付ける前の状態を履歴に残す。
+        // 注釈を付ける前の状態を履歴に残す。以後の編集はこのファイルへ都度書き戻す。
+        var historyURL: URL?
         if purpose == .screenshot {
-            HistoryStore.shared.save(image)
+            historyURL = HistoryStore.shared.save(image)
         }
 
         guard purpose == .screenshot else {
@@ -120,13 +126,13 @@ final class CaptureCoordinator {
 
         switch Preferences.afterCaptureAction {
         case .openEditor:
-            EditorWindowController.present(image: image, pointSize: selection.rect.size)
+            EditorWindowController.present(image: image, pointSize: selection.rect.size, historyURL: historyURL)
 
         case .thumbnail:
             copyOrReportFailure(image)
             NSApp.deactivate()
             CaptureThumbnailPresenter.show(image: image, pointSize: selection.rect.size) {
-                EditorWindowController.present(image: image, pointSize: selection.rect.size)
+                EditorWindowController.present(image: image, pointSize: selection.rect.size, historyURL: historyURL)
             }
 
         case .copyOnly:

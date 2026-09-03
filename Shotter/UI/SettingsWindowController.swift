@@ -41,6 +41,10 @@ final class SettingsModel: ObservableObject {
         didSet { Preferences.roundsCornersByDefault = roundsCornersByDefault }
     }
 
+    @Published var closesEditorOnCopyOrSave: Bool {
+        didSet { Preferences.closesEditorOnCopyOrSave = closesEditorOnCopyOrSave }
+    }
+
     @Published var historyRetention: HistoryRetention {
         didSet {
             guard historyRetention != oldValue else { return }
@@ -88,6 +92,7 @@ final class SettingsModel: ObservableObject {
         afterCaptureAction = Preferences.afterCaptureAction
         addsShadowByDefault = Preferences.addsShadowByDefault
         roundsCornersByDefault = Preferences.roundsCornersByDefault
+        closesEditorOnCopyOrSave = Preferences.closesEditorOnCopyOrSave
         historyRetention = Preferences.historyRetention
         imageFormat = Preferences.imageFormat
         jpegQuality = Preferences.jpegQuality
@@ -103,6 +108,20 @@ final class SettingsModel: ObservableObject {
     var loginItemNeedsPathFix: Bool {
         if case .pathMismatch = LoginItemManager.state { return true }
         return false
+    }
+
+    /// この画面にある設定をすべて既定値へ戻す。
+    func resetToDefaults() {
+        areaHotKey = .defaultAreaCapture
+        windowHotKey = .defaultWindowCapture
+        textHotKey = .defaultTextRecognition
+        afterCaptureAction = .thumbnail
+        addsShadowByDefault = false
+        roundsCornersByDefault = false
+        closesEditorOnCopyOrSave = true
+        historyRetention = .default
+        imageFormat = .png
+        jpegQuality = 0.9
     }
 
     private func message(for state: LoginItemManager.State) -> String? {
@@ -139,25 +158,29 @@ struct SettingsView: View {
 
     @ObservedObject var model: SettingsModel
 
+    /// LabeledContent にカスタムビューを渡すと、macOS の Form 上ではラベルと中身が
+    /// 縦に積まれてしまい行が 2 段になることがある。HStack で明示的に横並びにする。
     @ViewBuilder
     private func hotKeyRow(
         title: String,
         combo: Binding<KeyCombo?>,
         failed: Bool
     ) -> some View {
-        LabeledContent(title) {
-            VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(title)
+                Spacer()
                 HotKeyRecorder(combo: combo)
                     .frame(width: 170, height: 24)
+            }
 
-                if failed {
-                    Label(
-                        "他のアプリが使用中のため登録できませんでした",
-                        systemImage: "exclamationmark.triangle.fill"
-                    )
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-                }
+            if failed {
+                Label(
+                    "他のアプリが使用中のため登録できませんでした",
+                    systemImage: "exclamationmark.triangle.fill"
+                )
+                .font(.caption)
+                .foregroundStyle(.orange)
             }
         }
     }
@@ -180,10 +203,6 @@ struct SettingsView: View {
                     combo: $model.textHotKey,
                     failed: model.textHotKeyFailed
                 )
-
-                Text("フィールドをクリックしてキーを押します。Delete でクリア、Esc で取り消し。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             } header: {
                 Text("グローバルホットキー")
             }
@@ -209,6 +228,15 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle("コピー・保存したらウィンドウを閉じる", isOn: $model.closesEditorOnCopyOrSave)
+                    Text("オフにすると、コピーや保存のあともエディタのウィンドウが開いたままになります。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.top, 10)
             } header: {
                 Text("撮影")
             }
@@ -225,8 +253,6 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-
-                Button("履歴を開く") { HistoryWindowController.show() }
             } header: {
                 Text("履歴")
             }
@@ -273,11 +299,30 @@ struct SettingsView: View {
             } header: {
                 Text("保存")
             }
+
+            Section {
+                HStack {
+                    Spacer()
+                    Button("デフォルトに戻す") { showsResetConfirmation = true }
+                }
+            }
         }
         .formStyle(.grouped)
         .frame(width: 460)
         .fixedSize(horizontal: false, vertical: true)
+        .confirmationDialog(
+            "すべての設定をデフォルトに戻しますか？",
+            isPresented: $showsResetConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("デフォルトに戻す", role: .destructive) { model.resetToDefaults() }
+            Button("キャンセル", role: .cancel) {}
+        } message: {
+            Text("ホットキーや撮影後の挙動など、この画面の設定がすべて既定値に戻ります。")
+        }
     }
+
+    @State private var showsResetConfirmation = false
 }
 
 @MainActor

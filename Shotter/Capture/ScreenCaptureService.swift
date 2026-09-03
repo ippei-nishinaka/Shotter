@@ -64,6 +64,11 @@ final class ScreenCaptureService {
             throw ScreenCaptureError.permissionDenied
         }
 
+        // Shotter 自身のウィンドウ（前回のサムネイルや HUD が消え切っていない場合など）は、
+        // 写り込むと紛らわしいので撮影対象から常に除外する。
+        let ownPID = ProcessInfo.processInfo.processIdentifier
+        let ownWindows = content.windows.filter { $0.owningApplication?.processID == ownPID }
+
         var snapshots: [DisplaySnapshot] = []
         for screen in NSScreen.screens {
             guard
@@ -72,7 +77,7 @@ final class ScreenCaptureService {
             else { continue }
 
             let scale = screen.backingScaleFactor
-            let image = try await captureFullDisplay(display, scale: scale)
+            let image = try await captureFullDisplay(display, scale: scale, excludingWindows: ownWindows)
             snapshots.append(
                 DisplaySnapshot(
                     displayID: displayID,
@@ -129,8 +134,8 @@ final class ScreenCaptureService {
 
     // MARK: - Private
 
-    private func captureFullDisplay(_ display: SCDisplay, scale: CGFloat) async throws -> CGImage {
-        let filter = SCContentFilter(display: display, excludingWindows: [])
+    private func captureFullDisplay(_ display: SCDisplay, scale: CGFloat, excludingWindows: [SCWindow]) async throws -> CGImage {
+        let filter = SCContentFilter(display: display, excludingWindows: excludingWindows)
 
         let configuration = SCStreamConfiguration()
         configuration.width = Int(CGFloat(display.width) * scale)

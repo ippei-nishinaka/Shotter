@@ -25,12 +25,18 @@ final class AnnotationStore: ObservableObject {
         didSet { applyStyleToSelection(recordUndo: true) }
     }
 
-    @Published var lineWidth: CGFloat = 4 {
-        didSet { applyStyleToSelection(recordUndo: false) }
+    @Published var lineWidth: CGFloat = Preferences.lineWidth {
+        didSet {
+            Preferences.lineWidth = lineWidth
+            applyStyleToSelection(recordUndo: false)
+        }
     }
 
-    @Published var fontSize: CGFloat = 24 {
-        didSet { applyStyleToSelection(recordUndo: false) }
+    @Published var fontSize: CGFloat = Preferences.fontSize {
+        didSet {
+            Preferences.fontSize = fontSize
+            applyStyleToSelection(recordUndo: false)
+        }
     }
 
     /// 選択ツールで選ばれている注釈。
@@ -45,6 +51,11 @@ final class AnnotationStore: ObservableObject {
     /// モザイクツールの種類（モザイク／ぼかし）。
     @Published var pixelateMode: PixelateAnnotation.Mode = .pixelate {
         didSet { applyOptionsToSelection() }
+    }
+
+    /// 連番の開始番号。途中の手順から振り始めたいときに変える。
+    @Published var counterStartNumber: Int = 1 {
+        didSet { didChange() }
     }
 
     // MARK: - ツールごとのオプション
@@ -67,8 +78,11 @@ final class AnnotationStore: ObservableObject {
     @Published var roundsFocus = false { didSet { applyOptionsToSelection() } }
 
     /// モザイク／ぼかしの強さ。
-    @Published var pixelateIntensity: CGFloat = 1 {
-        didSet { applyOptionsToSelection() }
+    @Published var pixelateIntensity: CGFloat = Preferences.pixelateIntensity {
+        didSet {
+            Preferences.pixelateIntensity = pixelateIntensity
+            applyOptionsToSelection()
+        }
     }
 
     @Published var textTraits = TextTraits() {
@@ -76,14 +90,18 @@ final class AnnotationStore: ObservableObject {
     }
 
     /// 影の強さ（0.3〜2.0 くらいを想定）。
-    @Published var shadowStrength: CGFloat = 1 {
-        didSet { didChange() }
+    @Published var shadowStrength: CGFloat = Preferences.shadowStrength {
+        didSet {
+            Preferences.shadowStrength = shadowStrength
+            didChange()
+        }
     }
 
     /// 画像の角を丸めるときの半径（ポイント）。
-    @Published var cornerRoundness: CGFloat = ImageMask.roundedCornerRadius {
+    @Published var cornerRoundness: CGFloat = Preferences.cornerRoundness {
         didSet {
             guard cornerRoundness != oldValue else { return }
+            Preferences.cornerRoundness = cornerRoundness
             roundedImageCache = nil
             didChange()
         }
@@ -201,13 +219,67 @@ final class AnnotationStore: ObservableObject {
     }
 
     var renderEnvironment: AnnotationRenderEnvironment {
-        AnnotationRenderEnvironment(sourceImage: sourceImage, imageSize: imageSize)
+        AnnotationRenderEnvironment(
+            sourceImage: sourceImage,
+            imageSize: imageSize,
+            counterStartNumber: counterStartNumber
+        )
     }
 
-    init(image: CGImage, pointSize: CGSize) {
+    /// この編集内容を書き戻す先の履歴ファイル。撮影直後や履歴から開いた場合に入る。
+    private let historyURL: URL?
+    private var autosaveWorkItem: DispatchWorkItem?
+
+    init(image: CGImage, pointSize: CGSize, historyURL: URL? = nil, document: AnnotationDocument? = nil) {
         self.sourceImage = image
         self.imageSize = CGSize(width: image.width, height: image.height)
         self.pointSize = pointSize
+        self.historyURL = historyURL
+
+        if let document {
+            annotations = document.annotations.map { $0.makeAnnotation() }
+            hasShadow = document.hasShadow
+            shadowStrength = document.shadowStrength
+            hasRoundedCorners = document.hasRoundedCorners
+            cornerRoundness = document.cornerRoundness
+            counterStartNumber = document.counterStartNumber
+        }
+    }
+
+    /// 今の編集内容を、履歴サイドカーへ書き出せる形にしたもの。
+    var documentSnapshot: AnnotationDocument {
+        AnnotationDocument(
+            annotations: annotations.compactMap { AnnotationSnapshot($0) },
+            hasShadow: hasShadow,
+            shadowStrength: shadowStrength,
+            hasRoundedCorners: hasRoundedCorners,
+            cornerRoundness: cornerRoundness,
+            counterStartNumber: counterStartNumber
+        )
+    }
+
+    /// オブジェクトを動かすなど何か変わるたびに、履歴へオブジェクトのまま書き戻す。
+    /// ラスター画像へ焼き込まないので、あとで履歴から開き直しても引き続き動かせる。
+    /// ドラッグ中に何度も呼ばれるので、少し間を置いてからまとめて書き込む。
+    private func scheduleAutosave() {
+        guard let historyURL else { return }
+
+        autosaveWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            HistoryStore.shared.saveDocument(self.documentSnapshot, for: historyURL)
+        }
+        autosaveWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: workItem)
+    }
+
+    /// ウィンドウを閉じる直前など、保留中の自動保存があれば待たずに確定させる。
+    /// これが無いと、閉じる直前の最後の一手だけがデバウンス中に取りこぼされる。
+    func flushPendingAutosave() {
+        guard let historyURL, autosaveWorkItem != nil else { return }
+        autosaveWorkItem?.cancel()
+        autosaveWorkItem = nil
+        HistoryStore.shared.saveDocument(documentSnapshot, for: historyURL)
     }
 
     // MARK: - 編集
@@ -309,6 +381,7 @@ final class AnnotationStore: ObservableObject {
     /// ドラッグ中など、確定前の変更を通知したいときに呼ぶ（履歴には積まない）。
     func didChange() {
         revision &+= 1
+        scheduleAutosave()
     }
 
     /// 既存の注釈を書き換える前に呼び、履歴に現在の状態を積む。

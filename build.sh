@@ -5,6 +5,8 @@
 #   ./build.sh            … デバッグビルド
 #   ./build.sh release    … リリースビルド (-O)
 #   ./build.sh run        … ビルドしてから起動
+#   ./build.sh install    … リリースビルドして /Applications に入れる
+#                            （Dock・Launchpad・Spotlight から起動できるようにする）
 #   ./build.sh dist       … 配布用の universal binary を作って zip に固める
 #   ./build.sh clean      … build/ と dist/ を削除
 #
@@ -29,6 +31,7 @@ RESOURCES_DIR="$APP_BUNDLE/Contents/Resources"
 
 MODE="${1:-debug}"
 RUN_AFTER_BUILD="no"
+INSTALL_AFTER_BUILD="no"
 
 case "$MODE" in
     clean)
@@ -40,10 +43,14 @@ case "$MODE" in
         MODE="debug"
         RUN_AFTER_BUILD="yes"
         ;;
+    install)
+        MODE="release"
+        INSTALL_AFTER_BUILD="yes"
+        ;;
     debug|release|dist)
         ;;
     *)
-        echo "使い方: ./build.sh [debug|release|run|dist|clean]" >&2
+        echo "使い方: ./build.sh [debug|release|run|install|dist|clean]" >&2
         exit 1
         ;;
 esac
@@ -114,6 +121,7 @@ fi
 
 cp "$SRC_DIR/Resources/Info.plist" "$APP_BUNDLE/Contents/Info.plist"
 printf 'APPL????' > "$APP_BUNDLE/Contents/PkgInfo"
+cp "$SRC_DIR/Resources/AppIcon.icns" "$RESOURCES_DIR/AppIcon.icns"
 
 # --- 署名 -------------------------------------------------------------------
 if [ "$MODE" = "dist" ]; then
@@ -147,6 +155,16 @@ if [ "$RUN_AFTER_BUILD" = "yes" ]; then
     # すでに起動していれば一度終了させる
     pkill -x "$APP_NAME" 2>/dev/null || true
     open "$APP_BUNDLE"
+    echo "🚀 起動しました (メニューバー右側のアイコンを確認してください)"
+fi
+
+if [ "$INSTALL_AFTER_BUILD" = "yes" ]; then
+    INSTALLED_APP="/Applications/$APP_NAME.app"
+    pkill -x "$APP_NAME" 2>/dev/null || true
+    rm -rf "$INSTALLED_APP"
+    ditto "$APP_BUNDLE" "$INSTALLED_APP"
+    echo "📦 /Applications/$APP_NAME.app に入れました（Dock・Launchpad・Spotlight から起動できます）"
+    open "$INSTALLED_APP"
     echo "🚀 起動しました (メニューバー右側のアイコンを確認してください)"
 fi
 
