@@ -299,10 +299,15 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSMenu
 
     private static let toolbarHeight: CGFloat = 48
 
+    /// マウスカーソルがある画面（見つからなければメイン画面）。
+    /// ウィンドウを置く画面と、外部ファイルを開くときのポイントサイズ計算の両方で使う。
+    static func screenUnderMouse() -> NSScreen? {
+        NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main
+    }
+
     private func positionOnActiveScreen() {
         guard let window else { return }
-        let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main
-        guard let screen else { return window.center() }
+        guard let screen = Self.screenUnderMouse() else { return window.center() }
 
         let frame = window.frame
         let visible = screen.visibleFrame

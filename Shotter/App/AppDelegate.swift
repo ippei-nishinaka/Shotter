@@ -1,4 +1,17 @@
 import AppKit
+import ImageIO
+
+/// Finder の「このアプリで開く」や `open -a Shotter <path>` で渡された画像を読み込めなかった場合のエラー。
+enum FileOpenError: LocalizedError {
+    case unreadableImage(URL)
+
+    var errorDescription: String? {
+        switch self {
+        case .unreadableImage(let url):
+            return "\(url.lastPathComponent) を画像として読み込めませんでした。"
+        }
+    }
+}
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -89,5 +102,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
         true
+    }
+
+    /// `open -a Shotter <path>` や Finder の「このアプリで開く」から渡された画像を注釈エディタで開く。
+    /// BTT などから「ファイルへ保存 → このアプリで開く」を叩く連携を想定している。
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls {
+            openInEditor(fileAt: url)
+        }
+    }
+
+    private func openInEditor(fileAt url: URL) {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
+        else {
+            AlertPresenter.showError(FileOpenError.unreadableImage(url), title: "開けませんでした")
+            return
+        }
+
+        // 通常の撮影と同じく、注釈を付ける前の状態を履歴に残す。
+        let historyURL = HistoryStore.shared.save(image)
+
+        // ウィンドウが実際に開く画面のスケールに合わせないと、キャンバスが引き伸ばされてぼやける。
+        let scale = EditorWindowController.screenUnderMouse()?.backingScaleFactor ?? 2
+        EditorWindowController.present(
+            image: image,
+            pointSize: CGSize(width: CGFloat(image.width) / scale, height: CGFloat(image.height) / scale),
+            historyURL: historyURL
+        )
     }
 }
