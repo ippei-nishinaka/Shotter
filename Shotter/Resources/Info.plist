@@ -30,6 +30,8 @@
 	<true/>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>画面収録にマイクの音声を入れるために使います。</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Personal use build.</string>
 	<key>CFBundleDocumentTypes</key>

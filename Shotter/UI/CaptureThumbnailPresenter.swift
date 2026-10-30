@@ -12,13 +12,16 @@ final class CaptureThumbnailModel: ObservableObject {
 
     let image: NSImage
     let duration: TimeInterval
+    /// 動画のときはその長さ。サムネイルに再生マークと長さを重ねる。
+    let videoDuration: TimeInterval?
 
     private var countdown: Task<Void, Never>?
     private var onExpire: (() -> Void)?
 
-    init(image: NSImage, duration: TimeInterval) {
+    init(image: NSImage, duration: TimeInterval, videoDuration: TimeInterval? = nil) {
         self.image = image
         self.duration = duration
+        self.videoDuration = videoDuration
     }
 
     func start(onExpire: @escaping () -> Void) {
@@ -102,6 +105,20 @@ struct CaptureThumbnailView: View {
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .strokeBorder(Color.primary.opacity(0.15), lineWidth: 1)
             )
+            .overlay {
+                if model.videoDuration != nil {
+                    Image(systemName: "play.circle.fill")
+                        .font(.system(size: 34))
+                        .symbolRenderingMode(.palette)
+                        .foregroundStyle(Color.white, Color.black.opacity(0.5))
+                }
+            }
+            .overlay(alignment: .bottomTrailing) {
+                if let videoDuration = model.videoDuration {
+                    VideoDurationBadge(duration: videoDuration)
+                        .padding(5)
+                }
+            }
     }
 
     private var message: some View {
@@ -110,10 +127,7 @@ struct CaptureThumbnailView: View {
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.green)
 
-            Label(
-                model.isHovering ? "クリックして注釈エディタを開く" : "クリックで編集（残り \(secondsLeft) 秒）",
-                systemImage: "pencil.tip.crop.circle"
-            )
+            Label(clickHint, systemImage: "pencil.tip.crop.circle")
             .font(.system(size: 11))
             .foregroundStyle(.secondary)
         }
@@ -133,6 +147,13 @@ struct CaptureThumbnailView: View {
         .frame(height: 3)
     }
 
+    private var clickHint: String {
+        if model.videoDuration != nil {
+            return model.isHovering ? "クリックして動画エディタを開く" : "クリックで編集（残り \(secondsLeft) 秒）"
+        }
+        return model.isHovering ? "クリックして注釈エディタを開く" : "クリックで編集（残り \(secondsLeft) 秒）"
+    }
+
     private var secondsLeft: Int {
         max(1, Int((model.remaining * model.duration).rounded(.up)))
     }
@@ -145,16 +166,18 @@ enum CaptureThumbnailPresenter {
     private static var panel: NSPanel?
     private static var model: CaptureThumbnailModel?
 
+    /// - Parameter videoDuration: 動画のサムネイルとして出すときは、その長さ。
     static func show(
         image: CGImage,
         pointSize: CGSize,
         duration: TimeInterval = 10,
+        videoDuration: TimeInterval? = nil,
         onOpenEditor: @escaping () -> Void
     ) {
         dismiss()
 
         let nsImage = NSImage(cgImage: image, size: pointSize)
-        let model = CaptureThumbnailModel(image: nsImage, duration: duration)
+        let model = CaptureThumbnailModel(image: nsImage, duration: duration, videoDuration: videoDuration)
         self.model = model
 
         let hosting = NSHostingView(
@@ -232,5 +255,29 @@ enum CaptureThumbnailPresenter {
             width: size.width,
             height: size.height
         )
+    }
+}
+
+/// 動画の長さを「1:23」「1:02:03」の形でサムネイルの隅に出す。
+struct VideoDurationBadge: View {
+    let duration: TimeInterval
+
+    var body: some View {
+        Text(Self.format(duration))
+            .font(.system(size: 10, weight: .semibold).monospacedDigit())
+            .foregroundStyle(.white)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 2)
+            .background(Capsule().fill(Color.black.opacity(0.65)))
+    }
+
+    static func format(_ duration: TimeInterval) -> String {
+        let total = max(0, Int(duration.rounded()))
+        let hours = total / 3600
+        let minutes = (total % 3600) / 60
+        let seconds = total % 60
+        return hours > 0
+            ? String(format: "%d:%02d:%02d", hours, minutes, seconds)
+            : String(format: "%d:%02d", minutes, seconds)
     }
 }

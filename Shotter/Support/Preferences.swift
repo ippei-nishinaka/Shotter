@@ -22,6 +22,17 @@ enum Preferences {
         static let cornerRoundness = "annotationCornerRoundness"
         static let pixelateIntensity = "annotationPixelateIntensity"
         static let closesEditorOnCopyOrSave = "closesEditorOnCopyOrSave"
+        static let recordingHotKey = "screenRecordingHotKey"
+        static let recordingQuality = "recordingQuality"
+        static let recordsSystemAudio = "recordsSystemAudio"
+        static let systemAudioScope = "systemAudioScope"
+        static let recordsMicrophone = "recordsMicrophone"
+        static let microphoneDeviceID = "microphoneDeviceID"
+        static let showsCursorInRecording = "showsCursorInRecording"
+        static let recordingCountdown = "recordingCountdown"
+        static let videoHistoryRetention = "videoHistoryRetentionDays"
+        static let imageSaveDirectory = "imageSaveDirectory"
+        static let videoSaveDirectory = "videoSaveDirectory"
     }
 
     private static var defaults: UserDefaults { .standard }
@@ -67,7 +78,7 @@ enum Preferences {
         set { defaults.set(newValue, forKey: Key.closesEditorOnCopyOrSave) }
     }
 
-    /// 履歴の保持期間（既定は 2 週間）。
+    /// 履歴の保持期間（既定は自動削除しない）。
     static var historyRetention: HistoryRetention {
         get {
             guard let stored = defaults.object(forKey: Key.historyRetention) as? Int,
@@ -78,6 +89,31 @@ enum Preferences {
         set {
             defaults.set(newValue.rawValue, forKey: Key.historyRetention)
         }
+    }
+
+    /// 動画の履歴の保持期間（既定は自動削除しない）。1 本で数 GB になるので画像とは別に持つ。
+    static var videoHistoryRetention: HistoryRetention {
+        get {
+            guard let stored = defaults.object(forKey: Key.videoHistoryRetention) as? Int,
+                  let retention = HistoryRetention(rawValue: stored)
+            else { return .defaultForVideo }
+            return retention
+        }
+        set {
+            defaults.set(newValue.rawValue, forKey: Key.videoHistoryRetention)
+        }
+    }
+
+    /// 画像・動画の保存先。nil なら既定の場所（~/Library/Application Support/Shotter/History）。
+    static func saveDirectory(for kind: HistoryItemKind) -> URL? {
+        let key = kind == .image ? Key.imageSaveDirectory : Key.videoSaveDirectory
+        guard let path = defaults.string(forKey: key) else { return nil }
+        return URL(fileURLWithPath: path, isDirectory: true)
+    }
+
+    static func setSaveDirectory(_ url: URL?, for kind: HistoryItemKind) {
+        let key = kind == .image ? Key.imageSaveDirectory : Key.videoSaveDirectory
+        defaults.set(url?.path, forKey: key)
     }
 
     /// 初回起動時の案内を表示済みか。
@@ -102,6 +138,12 @@ enum Preferences {
     static var textRecognitionHotKey: KeyCombo {
         get { combo(forKey: Key.textHotKey, default: .defaultTextRecognition) }
         set { defaults.set(newValue.storageString, forKey: Key.textHotKey) }
+    }
+
+    /// ウィンドウ収録を開始／停止するグローバルホットキー。
+    static var recordingHotKey: KeyCombo {
+        get { combo(forKey: Key.recordingHotKey, default: .defaultScreenRecording) }
+        set { defaults.set(newValue.storageString, forKey: Key.recordingHotKey) }
     }
 
     private static func combo(forKey key: String, default fallback: KeyCombo) -> KeyCombo {
@@ -149,6 +191,66 @@ enum Preferences {
     static var pixelateIntensity: CGFloat {
         get { CGFloat(defaults.object(forKey: Key.pixelateIntensity) as? Double ?? 1) }
         set { defaults.set(Double(newValue), forKey: Key.pixelateIntensity) }
+    }
+
+    // MARK: - 収録
+
+    static var recordingQuality: RecordingQuality {
+        get {
+            guard let raw = defaults.string(forKey: Key.recordingQuality) else { return .default }
+            return RecordingQuality(rawValue: raw) ?? .default
+        }
+        set { defaults.set(newValue.rawValue, forKey: Key.recordingQuality) }
+    }
+
+    /// システム音声を録るか（既定は ON）。
+    static var recordsSystemAudio: Bool {
+        get { defaults.object(forKey: Key.recordsSystemAudio) as? Bool ?? true }
+        set { defaults.set(newValue, forKey: Key.recordsSystemAudio) }
+    }
+
+    /// システム音声を拾う範囲（既定は収録するアプリの音だけ）。
+    static var systemAudioScope: SystemAudioScope {
+        get {
+            guard let raw = defaults.string(forKey: Key.systemAudioScope) else { return .default }
+            return SystemAudioScope(rawValue: raw) ?? .default
+        }
+        set { defaults.set(newValue.rawValue, forKey: Key.systemAudioScope) }
+    }
+
+    /// マイクの音を録るか（既定は OFF）。
+    static var recordsMicrophone: Bool {
+        get { defaults.bool(forKey: Key.recordsMicrophone) }
+        set { defaults.set(newValue, forKey: Key.recordsMicrophone) }
+    }
+
+    /// 使うマイク。nil ならシステムの既定。
+    static var microphoneDeviceID: String? {
+        get { defaults.string(forKey: Key.microphoneDeviceID) }
+        set { defaults.set(newValue, forKey: Key.microphoneDeviceID) }
+    }
+
+    /// 収録にマウスポインタを写すか（既定は OFF）。
+    static var showsCursorInRecording: Bool {
+        get { defaults.bool(forKey: Key.showsCursorInRecording) }
+        set { defaults.set(newValue, forKey: Key.showsCursorInRecording) }
+    }
+
+    /// 収録開始前に 3 秒のカウントダウンを出すか（既定は ON）。
+    static var recordingCountdown: Bool {
+        get { defaults.object(forKey: Key.recordingCountdown) as? Bool ?? true }
+        set { defaults.set(newValue, forKey: Key.recordingCountdown) }
+    }
+
+    static var recordingOptions: RecordingOptions {
+        RecordingOptions(
+            quality: recordingQuality,
+            recordsSystemAudio: recordsSystemAudio,
+            systemAudioScope: systemAudioScope,
+            recordsMicrophone: recordsMicrophone,
+            microphoneDeviceID: microphoneDeviceID,
+            showsCursor: showsCursorInRecording
+        )
     }
 
     static var jpegQuality: CGFloat {

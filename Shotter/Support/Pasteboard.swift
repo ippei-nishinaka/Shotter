@@ -17,6 +17,14 @@ enum Pasteboard {
         return true
     }
 
+    /// ファイルそのものを載せる。Finder やチャットアプリへ貼り付けられる。
+    @discardableResult
+    static func copy(fileURL: URL) -> Bool {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        return pasteboard.writeObjects([fileURL as NSURL])
+    }
+
     @discardableResult
     static func copy(text: String) -> Bool {
         let pasteboard = NSPasteboard.general

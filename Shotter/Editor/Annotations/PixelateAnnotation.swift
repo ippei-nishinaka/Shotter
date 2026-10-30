@@ -33,6 +33,8 @@ final class PixelateAnnotation: TwoPointAnnotation {
 
     private var cachedImage: CGImage?
     private var cacheKey: String = ""
+    /// キャッシュを作ったときの下地。動画ではコマごとに変わるので、違えば作り直す。
+    private weak var cachedSource: CGImage?
 
     override func draw(in context: CGContext, environment: AnnotationRenderEnvironment) {
         let target = rect.integral
@@ -64,7 +66,7 @@ final class PixelateAnnotation: TwoPointAnnotation {
         environment: AnnotationRenderEnvironment
     ) -> CGImage? {
         let key = "\(mode.rawValue)-\(style.pixelateIntensity)-\(target)"
-        if key == cacheKey, let cachedImage { return cachedImage }
+        if key == cacheKey, cachedSource === environment.sourceImage, let cachedImage { return cachedImage }
 
         // CGImage の座標系は左上原点なので、注釈の座標をそのまま切り出しに使える。
         let bounds = CGRect(origin: .zero, size: environment.imageSize)
@@ -102,6 +104,7 @@ final class PixelateAnnotation: TwoPointAnnotation {
 
         cachedImage = image
         cacheKey = key
+        cachedSource = environment.sourceImage
         return image
     }
 }

@@ -27,10 +27,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             "ホットキー登録  範囲: \(Preferences.hotKey.displayString)"
                 + "  ウィンドウ: \(Preferences.windowHotKey.displayString)"
                 + "  文字認識: \(Preferences.textRecognitionHotKey.displayString)"
+                + "  収録: \(Preferences.recordingHotKey.displayString)"
                 + (failedHotKeys.isEmpty ? " → すべて成功" : " → 失敗: \(failedHotKeys.map(\.title))")
         )
         #endif
         statusItemController = StatusItemController()
+
+        // 前回、収録中に落ちていたら、書きかけのファイルを履歴へ移す。
+        Task { await HistoryStore.shared.recoverInterruptedRecordings() }
 
         // 保持期間を過ぎた履歴をファイルごと削除する。
         let purged = HistoryStore.shared.purgeExpired()
@@ -57,6 +61,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         if CommandLine.arguments.contains("--debug-ocr") {
             DebugSupport.runOCRCheckAndQuit()
+            return
+        }
+        if CommandLine.arguments.contains("--debug-encode-bitrate") {
+            DebugSupport.measureEncodeBitrateAndQuit()
+            return
+        }
+        if CommandLine.arguments.contains("--debug-video-playback") {
+            DebugSupport.checkVideoPlaybackAndQuit()
+            return
+        }
+        if CommandLine.arguments.contains("--debug-save-directory") {
+            DebugSupport.checkSaveDirectoryAndQuit()
+            return
+        }
+        if CommandLine.arguments.contains("--debug-video-editor") {
+            DebugSupport.dumpVideoEditorAndQuit()
+            return
+        }
+        if CommandLine.arguments.contains("--debug-video-export") {
+            DebugSupport.exportVideoAndQuit()
+            return
+        }
+        if CommandLine.arguments.contains("--debug-record-resize") {
+            DebugSupport.recordResizingWindowAndQuit()
+            return
+        }
+        if CommandLine.arguments.contains("--debug-record") {
+            DebugSupport.recordFrontWindowAndQuit()
+            return
+        }
+        if CommandLine.arguments.contains("--debug-recording-statusbar") {
+            DebugSupport.dumpRecordingStatusBarAndQuit()
+            return
+        }
+        if CommandLine.arguments.contains("--debug-recording-bar") {
+            DebugSupport.dumpRecordingSetupBarAndQuit()
             return
         }
         if CommandLine.arguments.contains("--debug-history-window") {

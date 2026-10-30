@@ -578,10 +578,19 @@ enum DebugSupport {
         }
         store.reload()
 
-        HistoryWindowController.show()
+        let originalVideo = Preferences.videoHistoryRetention
+        Preferences.videoHistoryRetention = .oneWeek
 
         guard let path = canvasDumpPath else { NSApp.terminate(nil); return }
         Task { @MainActor in
+            // 動画の見た目も確かめられるよう、合成した短い動画を 1 本入れる。
+            if let video = await addSyntheticVideoToHistory(date: Date().addingTimeInterval(-0.1 * day)) {
+                created.append(video)
+                let base = video.deletingPathExtension()
+                created.append(base.appendingPathExtension("recording.json"))
+                created.append(base.appendingPathExtension("poster.jpg"))
+            }
+            HistoryWindowController.show()
             try? await Task.sleep(nanoseconds: 1_800_000_000)
 
             if let window = NSApp.windows.first(where: { $0.title == "Shotter の履歴" && $0.isVisible }),
@@ -598,13 +607,14 @@ enum DebugSupport {
 
             for url in created { try? FileManager.default.removeItem(at: url) }
             Preferences.historyRetention = original
+            Preferences.videoHistoryRetention = originalVideo
             log("ダミーを片付けました")
             NSApp.terminate(nil)
         }
     }
 
     /// 履歴の見分けが付くよう、色違いのタイル画像を作る。
-    private static func sampleTile(index: Int) -> CGImage? {
+    static func sampleTile(index: Int) -> CGImage? {
         let width = 800, height = 500
         guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
               let context = CGContext(
@@ -649,7 +659,7 @@ enum DebugSupport {
         let store = HistoryStore.shared
         let existing = { () -> Int in store.reload(); return store.items.count }()
         record("開始時の履歴: \(existing) 件")
-        record("保存先: \(store.directory.path)")
+        record("保存先: \(store.imageDirectory.path)")
 
         guard let image = solidImage(width: 200, height: 120) else {
             record("テスト画像を作れませんでした")

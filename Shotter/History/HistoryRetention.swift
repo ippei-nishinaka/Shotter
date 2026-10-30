@@ -11,7 +11,9 @@ enum HistoryRetention: Int, CaseIterable, Identifiable {
     /// 自動削除しない。
     case forever = -1
 
-    static let `default` = HistoryRetention.twoWeeks
+    /// 既定は画像・動画とも「自動削除しない」。消したいときは設定で期間を選ぶ。
+    static let `default` = HistoryRetention.forever
+    static let defaultForVideo = HistoryRetention.forever
 
     var id: Int { rawValue }
 

@@ -6,7 +6,8 @@ import Combine
 final class AnnotationStore: ObservableObject {
 
     /// 撮影された元画像（ピクセル）。
-    let sourceImage: CGImage
+    /// 動画エディタでは、いま表示しているコマに差し替えていく（モザイクの下地になる）。
+    private(set) var sourceImage: CGImage
 
     /// 画像のピクセルサイズ。注釈の座標系はこのサイズを基準にする。
     let imageSize: CGSize
@@ -111,6 +112,21 @@ final class AnnotationStore: ObservableObject {
     private var shapeCornerRadius: CGFloat { 8 * pixelScale }
 
     @Published private(set) var annotations: [Annotation] = []
+
+    /// 今は表示しない注釈（動画エディタで、再生位置が表示時間の外にあるもの）。
+    /// 描画にもクリックの当たり判定にも出てこない。静止画では常に空。
+    @Published var hiddenAnnotationIDs: Set<UUID> = [] {
+        didSet {
+            guard hiddenAnnotationIDs != oldValue else { return }
+            revision &+= 1
+        }
+    }
+
+    /// 今表示している注釈。並び順（重なり順）は annotations と同じ。
+    var visibleAnnotations: [Annotation] {
+        guard !hiddenAnnotationIDs.isEmpty else { return annotations }
+        return annotations.filter { !hiddenAnnotationIDs.contains($0.id) }
+    }
     @Published private(set) var undoStack: [[Annotation]] = []
     @Published private(set) var redoStack: [[Annotation]] = []
 
@@ -163,6 +179,14 @@ final class AnnotationStore: ObservableObject {
 
     var selectedAnnotation: Annotation? {
         annotations.first { $0.id == selectedID }
+    }
+
+    /// 下地の画像を差し替える（動画エディタでコマが変わったとき）。大きさは同じであること。
+    func replaceSourceImage(_ image: CGImage) {
+        guard image.width == Int(imageSize.width), image.height == Int(imageSize.height) else { return }
+        sourceImage = image
+        roundedImageCache = nil
+        revision &+= 1
     }
 
     /// 色やオプションの変更を反映する相手。
@@ -227,7 +251,8 @@ final class AnnotationStore: ObservableObject {
     }
 
     /// この編集内容を書き戻す先の履歴ファイル。撮影直後や履歴から開いた場合に入る。
-    private let historyURL: URL?
+    /// 「元の画像を開く」の対象にもなる。
+    let historyURL: URL?
     private var autosaveWorkItem: DispatchWorkItem?
 
     init(image: CGImage, pointSize: CGSize, historyURL: URL? = nil, document: AnnotationDocument? = nil) {

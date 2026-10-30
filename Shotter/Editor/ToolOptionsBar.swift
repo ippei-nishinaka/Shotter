@@ -26,19 +26,7 @@ struct ToolOptionsBar: View {
     }
 
     private func tool(for annotation: Annotation) -> AnnotationTool? {
-        switch annotation {
-        case is ArrowAnnotation:                                    return .arrow
-        case let rectangle as RectangleAnnotation:                  return rectangle.isFilled ? .filledRectangle : .rectangle
-        case is EllipseAnnotation:                                  return .ellipse
-        case is LineAnnotation:                                     return .line
-        case is FreehandAnnotation:                                 return .freehand
-        case is HighlightAnnotation:                                return .highlight
-        case is TextAnnotation:                                     return .text
-        case is PixelateAnnotation:                                 return .pixelate
-        case is SpotlightAnnotation:                                return .spotlight
-        case is CounterAnnotation:                                  return .counter
-        default:                                                    return nil
-        }
+        AnnotationTool(drawing: annotation)
     }
 
     var body: some View {

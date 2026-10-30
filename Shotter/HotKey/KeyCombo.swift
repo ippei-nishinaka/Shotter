@@ -26,6 +26,12 @@ struct KeyCombo: Equatable {
         modifiers: UInt32(controlKey | shiftKey)
     )
 
+    /// ウィンドウ収録の既定値: ⌃⇧R（Record の R）。
+    static let defaultScreenRecording = KeyCombo(
+        keyCode: UInt32(kVK_ANSI_R),
+        modifiers: UInt32(controlKey | shiftKey)
+    )
+
     // MARK: - NSEvent との相互変換
 
     init(keyCode: UInt32, modifiers: UInt32) {

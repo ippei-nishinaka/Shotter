@@ -6,12 +6,14 @@ enum HotKeyAction: UInt32, CaseIterable {
     case areaCapture = 1
     case windowCapture = 2
     case textRecognition = 3
+    case screenRecording = 4
 
     var title: String {
         switch self {
         case .areaCapture:     return "範囲キャプチャ"
         case .windowCapture:   return "ウィンドウキャプチャ"
         case .textRecognition: return "文字を読み取ってコピー"
+        case .screenRecording: return "ウィンドウを収録"
         }
     }
 }

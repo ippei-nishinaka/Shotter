@@ -30,6 +30,9 @@ final class CaptureCoordinator {
         if !applyHotKey(Preferences.textRecognitionHotKey, for: .textRecognition) {
             failed.append(.textRecognition)
         }
+        if !applyHotKey(Preferences.recordingHotKey, for: .screenRecording) {
+            failed.append(.screenRecording)
+        }
         return failed
     }
 
@@ -47,6 +50,7 @@ final class CaptureCoordinator {
             case .areaCapture:     CaptureCoordinator.shared.startAreaCapture()
             case .windowCapture:   CaptureCoordinator.shared.startWindowCapture()
             case .textRecognition: CaptureCoordinator.shared.startTextRecognitionCapture()
+            case .screenRecording: RecordingCoordinator.shared.toggle()
             }
         }
     }

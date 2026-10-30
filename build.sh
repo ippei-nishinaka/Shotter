@@ -109,6 +109,7 @@ for arch in "${ARCHS[@]}"; do
         -framework ScreenCaptureKit \
         -framework CoreImage \
         -framework CoreMedia \
+        -framework AVFoundation \
         -framework Vision
     SLICES+=("$OBJ_DIR/$APP_NAME-$arch")
 done

@@ -45,6 +45,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSMenu
         window.subtitle = "\(image.width) × \(image.height) px"
         window.titlebarAppearsTransparent = false
         window.isReleasedWhenClosed = false
+        // タイトルに元の画像ファイルのアイコンを出す。⌘ クリックで置き場所をたどれる。
+        window.representedURL = historyURL
         window.contentMinSize = CGSize(width: Self.toolbarMinWidth, height: 320)
 
         super.init(window: window)
@@ -120,61 +122,19 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSMenu
         // テキスト入力中は一切横取りしない。
         if window?.firstResponder is NSTextView { return false }
 
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        let hasCommand = flags.contains(.command)
-        let hasControl = flags.contains(.control)
-        let hasShift = flags.contains(.shift)
-        let hasOption = flags.contains(.option)
-
-        // 6 = Z, 16 = Y
-        if (hasCommand || hasControl), !hasOption {
-            switch event.keyCode {
-            case 6:
-                if hasShift { store.redo() } else { store.undo() }
+        return EditorKeyCommands.handle(event, store: store, canvas: canvas) { [store] character in
+            // S と R は描画ツールではなく、見た目のオプション。
+            switch character {
+            case "s":
+                store.hasShadow.toggle()
                 return true
-            case 16:
-                store.redo()
+            case "r":
+                store.hasRoundedCorners.toggle()
                 return true
             default:
-                // ⌘S / ⇧⌘C などはメニューに任せる。
                 return false
             }
         }
-
-        guard !hasCommand, !hasControl, !hasOption else { return false }
-
-        switch event.keyCode {
-        case 51, 117: // delete / forward delete
-            store.deleteSelection()
-            return true
-        case 53: // escape
-            store.select(nil)
-            return true
-        default:
-            break
-        }
-
-        guard let character = event.charactersIgnoringModifiers?.lowercased().first else {
-            return false
-        }
-
-        // S と R は描画ツールではなく、見た目のオプション。
-        if character == "s" {
-            store.hasShadow.toggle()
-            return true
-        }
-        if character == "r" {
-            store.hasRoundedCorners.toggle()
-            return true
-        }
-
-        guard let tool = AnnotationTool.allCases.first(where: { $0.shortcutKey == character }) else {
-            return false
-        }
-
-        store.tool = tool
-        canvas?.window?.invalidateCursorRects(for: canvas!)
-        return true
     }
 
     private var canvas: AnnotationCanvasView? {
