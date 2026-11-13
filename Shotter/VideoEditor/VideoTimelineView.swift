@@ -247,7 +247,10 @@ struct VideoTimelineView: View {
                 DragGesture(minimumDistance: 1)
                     .onChanged { value in
                         let origin = trimDragOrigin ?? time
-                        if trimDragOrigin == nil { trimDragOrigin = time }
+                        if trimDragOrigin == nil {
+                            trimDragOrigin = time
+                            store.beginTimelineDrag()
+                        }
                         let delta = self.time(at: value.translation.width + horizontalPadding, width: width)
                         if isStart {
                             store.setTrim(start: origin + delta, end: store.trimEnd)
@@ -255,7 +258,10 @@ struct VideoTimelineView: View {
                             store.setTrim(start: store.trimStart, end: origin + delta)
                         }
                     }
-                    .onEnded { _ in trimDragOrigin = nil }
+                    .onEnded { _ in
+                        trimDragOrigin = nil
+                        store.endTimelineDrag()
+                    }
             )
             .help(isStart ? "書き出しの開始位置（ドラッグで調整）" : "書き出しの終了位置（ドラッグで調整）")
     }
@@ -293,6 +299,8 @@ struct VideoTimelineView: View {
                             xPosition: { xPosition($0, width: width) },
                             timeDelta: { dx in Double(dx / max(width - horizontalPadding * 2, 1)) * store.duration },
                             onSelect: { store.selectFromTimeline(annotation.id) },
+                            onDragStart: store.beginTimelineDrag,
+                            onDragEnd: store.endTimelineDrag,
                             onMove: { store.moveRange(annotation.id, toStart: $0) },
                             onResize: { start, end in store.setRange(annotation.id, start: start, end: end) }
                         )
@@ -372,6 +380,8 @@ private struct AnnotationLane: View {
     let xPosition: (Double) -> CGFloat
     let timeDelta: (CGFloat) -> Double
     let onSelect: () -> Void
+    let onDragStart: () -> Void
+    let onDragEnd: () -> Void
     let onMove: (Double) -> Void
     let onResize: (Double, Double) -> Void
 
@@ -409,10 +419,14 @@ private struct AnnotationLane: View {
                     if dragOrigin == nil {
                         dragOrigin = range
                         onSelect()
+                        onDragStart()
                     }
                     onMove(origin.start + timeDelta(value.translation.width))
                 }
-                .onEnded { _ in dragOrigin = nil }
+                .onEnded { _ in
+                    dragOrigin = nil
+                    onDragEnd()
+                }
         )
         .simultaneousGesture(TapGesture().onEnded(onSelect))
         .offset(x: start)
@@ -454,10 +468,14 @@ private struct AnnotationLane: View {
                         if dragOrigin == nil {
                             dragOrigin = range
                             onSelect()
+                            onDragStart()
                         }
                         resize(timeDelta(value.translation.width), origin)
                     }
-                    .onEnded { _ in dragOrigin = nil }
+                    .onEnded { _ in
+                        dragOrigin = nil
+                        onDragEnd()
+                    }
             )
     }
 }

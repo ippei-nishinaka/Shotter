@@ -1,11 +1,14 @@
 import AVFoundation
 import CoreGraphics
+import CoreImage
+import ImageIO
 import UniformTypeIdentifiers
 
-/// 動画の書き出し形式。
+/// 書き出し形式。
 enum VideoExportFormat: String, CaseIterable, Identifiable {
     case mp4
     case mov
+    case gif
 
     var id: String { rawValue }
 
@@ -13,13 +16,16 @@ enum VideoExportFormat: String, CaseIterable, Identifiable {
         switch self {
         case .mp4: return "MP4（H.264・どこでも再生できる）"
         case .mov: return "MOV（HEVC・高画質で小さめ）"
+        case .gif: return "GIF（アニメーション・音声なし）"
         }
     }
 
-    var fileType: AVFileType {
+    /// 動画として書き出す場合のコンテナ。GIF は動画ではないので nil。
+    var fileType: AVFileType? {
         switch self {
         case .mp4: return .mp4
         case .mov: return .mov
+        case .gif: return nil
         }
     }
 
@@ -29,14 +35,29 @@ enum VideoExportFormat: String, CaseIterable, Identifiable {
         switch self {
         case .mp4: return .mpeg4Movie
         case .mov: return .quickTimeMovie
+        case .gif: return .gif
         }
     }
 
     var codec: AVVideoCodecType {
         switch self {
-        case .mp4: return .h264
-        case .mov: return RecordingWriter.supportsHEVC ? .hevc : .h264
+        case .mp4, .gif: return .h264
+        case .mov:       return RecordingWriter.supportsHEVC ? .hevc : .h264
         }
+    }
+}
+
+/// GIF の書き出し設定。
+struct GIFExportOptions: Equatable {
+    /// 横幅の上限（ピクセル）。0 なら元の大きさのまま。
+    var maxWidth: Int = 800
+    var framesPerSecond: Int = 15
+
+    static let widthChoices = [480, 640, 800, 1024, 1280, 0]
+    static let frameRateChoices = [10, 15, 20, 30]
+
+    static func widthTitle(_ width: Int) -> String {
+        width == 0 ? "元の大きさ" : "\(width) px"
     }
 }
 
@@ -70,6 +91,7 @@ final class VideoExporter: @unchecked Sendable {
         var trimEnd: Double
         var duration: Double
         var counterStartNumber: Int
+        var gifOptions = GIFExportOptions()
     }
 
     private let job: Job
@@ -103,7 +125,11 @@ final class VideoExporter: @unchecked Sendable {
         }
 
         do {
-            try await transcode(progress: progress)
+            if job.format == .gif {
+                try await makeGIF(progress: progress)
+            } else {
+                try await transcode(progress: progress)
+            }
         } catch {
             try? FileManager.default.removeItem(at: job.outputURL)
             throw cancelled ? VideoExportError.cancelled : error
@@ -161,7 +187,8 @@ final class VideoExporter: @unchecked Sendable {
             audioOutput = output
         }
 
-        let writer = try AVAssetWriter(outputURL: job.outputURL, fileType: job.format.fileType)
+        guard let fileType = job.format.fileType else { throw VideoExportError.failed("動画の形式ではありません") }
+        let writer = try AVAssetWriter(outputURL: job.outputURL, fileType: fileType)
         writer.shouldOptimizeForNetworkUse = job.format == .mp4
 
         // 元と同じくらいの画質を保つ。H.264 は HEVC より効率が落ちるので多めに割り当てる。
@@ -279,6 +306,115 @@ final class VideoExporter: @unchecked Sendable {
     }
 }
 
+extension VideoExporter {
+
+    /// 注釈を焼き込んだ GIF アニメーションを書き出す。
+    ///
+    /// 動画を頭から 1 コマずつ読み、指定した fps の間隔ごとに 1 枚ずつ拾って、縮小してから足していく。
+    /// GIF は 1 コマごとに画像を丸ごと持つので、長い範囲や大きな幅だとファイルが大きくなる。
+    private func makeGIF(progress: @escaping @Sendable (Double) -> Void) async throws {
+        let asset = AVURLAsset(url: job.sourceURL)
+        guard let videoTrack = try await asset.loadTracks(withMediaType: .video).first else {
+            throw VideoEditorError.noVideoTrack
+        }
+        let size = try await videoTrack.load(.naturalSize)
+
+        let reader = try AVAssetReader(asset: asset)
+        reader.timeRange = CMTimeRange(
+            start: CMTime(seconds: job.trimStart, preferredTimescale: 600),
+            end: CMTime(seconds: job.trimEnd, preferredTimescale: 600)
+        )
+        let output = AVAssetReaderTrackOutput(track: videoTrack, outputSettings: [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+            kCVPixelBufferIOSurfacePropertiesKey as String: [:] as [String: Any],
+        ])
+        output.alwaysCopiesSampleData = false
+        reader.add(output)
+        guard reader.startReading() else {
+            throw VideoExportError.failed(reader.error?.localizedDescription ?? "読み込みを開始できません")
+        }
+
+        let options = job.gifOptions
+        let interval = 1 / Double(options.framesPerSecond)
+        let total = max(job.trimEnd - job.trimStart, 0.001)
+        let frameCount = max(1, Int((total / interval).rounded(.up)))
+        let scale = options.maxWidth > 0 ? min(1, CGFloat(options.maxWidth) / size.width) : 1
+
+        guard let destination = CGImageDestinationCreateWithURL(
+            job.outputURL as CFURL, UTType.gif.identifier as CFString, frameCount, nil
+        ) else {
+            throw VideoExportError.failed("GIF ファイルを作れませんでした")
+        }
+        CGImageDestinationSetProperties(destination, [
+            kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFLoopCount: 0],
+        ] as CFDictionary)
+
+        // 収録は画面が変わらない間はコマを足さないので、1 枚ごとの表示時間は
+        // 「次の 1 枚までの時間」にする。そうしないと止まっていた場面だけ早送りになる。
+        // GIF の表示時間は 1/100 秒単位でしか持てない（15fps の 0.0667 秒は 0.07 秒になる）。
+        // 1 枚ずつ丸めると誤差が積もって遅くなるので、通算の時刻を丸めてから差を取る。
+        var pending: (image: CGImage, time: Double)?
+        var writtenUntil = 0.0
+        func flush(until nextTime: Double) {
+            guard let current = pending else { return }
+            let end = max(current.time + interval, nextTime) - job.trimStart
+            let delay = max(0.02, (end * 100).rounded() / 100 - writtenUntil)
+            writtenUntil += delay
+            CGImageDestinationAddImage(destination, current.image, [
+                kCGImagePropertyGIFDictionary: [
+                    kCGImagePropertyGIFDelayTime: delay,
+                    kCGImagePropertyGIFUnclampedDelayTime: delay,
+                ],
+            ] as CFDictionary)
+        }
+
+        let overlay = AnnotationOverlay(
+            annotations: job.annotations,
+            ranges: job.ranges,
+            duration: job.duration,
+            imageSize: size,
+            counterStartNumber: job.counterStartNumber
+        )
+        let context = CIContext()
+        var nextTime = job.trimStart
+        var added = 0
+
+        while let sample = output.copyNextSampleBuffer() {
+            if cancelled {
+                reader.cancelReading()
+                throw VideoExportError.cancelled
+            }
+            let time = CMSampleBufferGetPresentationTimeStamp(sample).seconds
+            // 次に拾う時刻に届いていないコマは飛ばす（元が 30fps なら 15fps では 2 コマに 1 枚）。
+            guard time + 0.001 >= nextTime, let pixelBuffer = CMSampleBufferGetImageBuffer(sample) else { continue }
+
+            overlay.draw(at: time, onto: pixelBuffer)
+            let image = CIImage(cvPixelBuffer: pixelBuffer)
+                .applyingFilter("CILanczosScaleTransform", parameters: [
+                    kCIInputScaleKey: scale,
+                    kCIInputAspectRatioKey: 1,
+                ])
+            guard let frame = context.createCGImage(image, from: image.extent.integral) else { continue }
+            flush(until: time)
+            pending = (frame, time)
+            added += 1
+
+            // 元のコマの間隔が広い（画面に変化がなかった）ところでは、その分だけ時刻を進める。
+            while nextTime <= time + 0.001 { nextTime += interval }
+            progress(min(1, (time - job.trimStart) / total))
+        }
+
+        if reader.status == .failed {
+            throw VideoExportError.failed(reader.error?.localizedDescription ?? "読み込みに失敗しました")
+        }
+        flush(until: job.trimEnd)
+        guard added > 0, CGImageDestinationFinalize(destination) else {
+            throw VideoExportError.failed("GIF を書き出せませんでした")
+        }
+        progress(1)
+    }
+}
+
 /// 読み出し口と書き込み口の組。どちらも Sendable ではないが、
 /// requestMediaDataWhenReady に渡したキューの上でしか触らないのでまとめて渡す。
 private struct ExportChannel: @unchecked Sendable {
@@ -291,7 +427,7 @@ private struct ExportChannel: @unchecked Sendable {
 ///
 /// モザイクを含まない組み合わせは、注釈だけを描いた透明な画像を 1 回作って使い回す。
 /// 注釈の組み合わせが変わる瞬間はまれなので、長い動画でもほとんど描き直さずに済む。
-private final class AnnotationOverlay {
+final class AnnotationOverlay {
 
     private let annotations: [Annotation]
     private let ranges: [UUID: AnnotationTimeRange]

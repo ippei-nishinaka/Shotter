@@ -69,6 +69,26 @@ struct KeyCombo: Equatable {
         return result + Self.keyLabel(for: keyCode)
     }
 
+    /// メニュー項目の右側にショートカットとして出すための値。
+    /// 文字・数字・記号と Space のキーだけ対応する（それ以外は nil。ツールチップで案内する）。
+    var menuKeyEquivalent: (key: String, modifiers: NSEvent.ModifierFlags)? {
+        let key: String
+        if keyCode == UInt32(kVK_Space) {
+            key = " "
+        } else if let letter = Self.letterKeyLabels[Int(keyCode)] {
+            key = letter.lowercased()
+        } else {
+            return nil
+        }
+
+        var flags: NSEvent.ModifierFlags = []
+        if modifiers & UInt32(controlKey) != 0 { flags.insert(.control) }
+        if modifiers & UInt32(optionKey) != 0 { flags.insert(.option) }
+        if modifiers & UInt32(shiftKey) != 0 { flags.insert(.shift) }
+        if modifiers & UInt32(cmdKey) != 0 { flags.insert(.command) }
+        return (key, flags)
+    }
+
     /// 仮想キーコード → 表示ラベル。
     static func keyLabel(for keyCode: UInt32) -> String {
         if let special = specialKeyLabels[Int(keyCode)] { return special }

@@ -62,6 +62,7 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
     private var audioStream: SCStream?
     private var microphone: MicrophoneCapture?
     private var isStopping = false
+    private var didReportWriterFailure = false
 
     /// - Parameter scale: ウィンドウがあるディスプレイの拡大率。
     init(window: SCWindow, scale: CGFloat, options: RecordingOptions, outputURL: URL) throws {
@@ -199,6 +200,14 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
 
             let fitted = fitter.fit(pixelBuffer, contentRect: Self.contentRect(of: info, buffer: pixelBuffer))
             writer.appendVideo(fitted, at: CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
+
+            // 書き込みが失敗したまま「収録中」の表示を続けないよう、気づいた時点で止めてもらう。
+            if writer.hasFailed, !didReportWriterFailure {
+                didReportWriterFailure = true
+                DispatchQueue.main.async { [weak self] in
+                    self?.onUnexpectedStop?(RecordingWriterError.writeFailed("書き込みを続けられませんでした"))
+                }
+            }
 
         case .audio:
             writer.appendAudio(sampleBuffer, track: .system)

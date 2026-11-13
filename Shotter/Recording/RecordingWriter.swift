@@ -185,8 +185,18 @@ final class RecordingWriter {
         input.append(sampleBuffer)
     }
 
+    /// 書き込みが途中で失敗したか（ディスクがいっぱい、保存先のディスクが外れた、など）。
+    var hasFailed: Bool { writer.status == .failed }
+
     /// 書き込みを終えてファイルを閉じる。
     func finish() async throws -> RecordingWriterResult {
+        // 途中で失敗している場合は、閉じる操作をせずにそのまま知らせる
+        // （失敗した writer に markAsFinished などを呼ぶと例外で落ちる）。
+        // 書けたところまではフラグメントとしてファイルに残っている。
+        guard writer.status == .writing else {
+            throw RecordingWriterError.writeFailed(writer.error?.localizedDescription ?? "不明なエラー")
+        }
+
         guard let firstVideoTime, frameCount > 0 else {
             writer.cancelWriting()
             try? FileManager.default.removeItem(at: writer.outputURL)

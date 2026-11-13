@@ -68,6 +68,9 @@ final class HistoryStore: ObservableObject {
 
     @Published private(set) var items: [HistoryItem] = []
 
+    /// サムネイルを描き直してほしいときに増やす（動画に注釈を付けたときなど）。一覧が見て再描画する。
+    @Published private(set) var thumbnailRevision = 0
+
     private let fileManager = FileManager.default
     private var thumbnailCache: [String: NSImage] = [:]
 
@@ -241,6 +244,35 @@ final class HistoryStore: ObservableObject {
         }.value
     }
 
+    /// 履歴に並べる動画の拡張子。収録したものは .mov、外から取り込んだものは元の形式のまま。
+    static let videoExtensions: Set<String> = ["mov", "mp4", "m4v"]
+
+    /// 外から開いた動画（BTT や Finder の「このアプリで開く」）を履歴へ取り込む。
+    /// 元のファイルには手を付けず、コピーしたものを編集する。動画の履歴を「保存しない」にしている
+    /// 場合だけは、コピーせずに元のファイルをそのまま開く。
+    /// - Returns: エディタで開くファイル。
+    func importVideo(at source: URL, date: Date = Date()) async throws -> URL {
+        guard Preferences.videoHistoryRetention.keepsHistory else { return source }
+
+        let ext = source.pathExtension.lowercased()
+        let destination = videoDirectory.appendingPathComponent(
+            fileName(for: date, extension: Self.videoExtensions.contains(ext) ? ext : "mov")
+        )
+        try await Task.detached(priority: .userInitiated) {
+            try FileManager.default.copyItem(at: source, to: destination)
+        }.value
+
+        let (info, poster) = await Self.inspectRecording(at: destination)
+        if let info, let data = try? JSONEncoder().encode(info) {
+            try? data.write(to: recordingInfoURL(for: destination), options: .atomic)
+        }
+        if let poster, let data = ImageExporter.data(from: poster, format: .jpeg, jpegQuality: 0.8) {
+            try? data.write(to: posterURL(for: destination), options: .atomic)
+        }
+        reload()
+        return destination
+    }
+
     // MARK: - 保存先の変更
 
     /// 今の保存先にあるその種類のファイルの数。保存先を変えるときに「移動しますか」と聞くのに使う。
@@ -280,6 +312,7 @@ final class HistoryStore: ObservableObject {
         if item.kind == .video {
             urls.append(recordingInfoURL(for: item.url))
             urls.append(posterURL(for: item.url))
+            urls.append(editedPosterURL(for: item.url))
         }
         return urls
     }
@@ -316,6 +349,23 @@ final class HistoryStore: ObservableObject {
         videoURL.deletingPathExtension().appendingPathExtension("recording.json")
     }
 
+    /// 注釈を付けた動画の、注釈込みの見本のコマ。あれば一覧のサムネイルに使う。
+    private func editedPosterURL(for videoURL: URL) -> URL {
+        videoURL.deletingPathExtension().appendingPathExtension("edited.jpg")
+    }
+
+    /// 注釈込みの見本のコマを保存する。nil なら消す（注釈をすべて消したとき）。
+    func saveEditedPoster(_ image: CGImage?, for videoURL: URL) {
+        let url = editedPosterURL(for: videoURL)
+        if let image, fileManager.fileExists(atPath: videoURL.path), let data = ImageExporter.data(from: image, format: .jpeg, jpegQuality: 0.8) {
+            try? data.write(to: url, options: .atomic)
+        } else {
+            try? fileManager.removeItem(at: url)
+        }
+        thumbnailCache[videoURL.lastPathComponent] = nil
+        thumbnailRevision &+= 1
+    }
+
     private func posterURL(for videoURL: URL) -> URL {
         videoURL.deletingPathExtension().appendingPathExtension("poster.jpg")
     }
@@ -336,10 +386,14 @@ final class HistoryStore: ObservableObject {
     /// 次に開いたときも引き続き動かしたり編集し直したりできる。
     @discardableResult
     func saveDocument(_ document: AnnotationDocument, for imageURL: URL) -> Bool {
+        // エディタを開いたまま履歴から消した画像には書き戻さない（注釈のファイルだけが残り続けてしまう）。
+        guard fileManager.fileExists(atPath: imageURL.path) else { return false }
         do {
             let data = try JSONEncoder().encode(document)
             try data.write(to: annotationsURL(for: imageURL), options: .atomic)
             thumbnailCache[imageURL.lastPathComponent] = nil
+            // 履歴ウィンドウを開いたまま編集しても、サムネイルが注釈込みの見た目に追従するようにする。
+            thumbnailRevision &+= 1
             return true
         } catch {
             return false
@@ -354,6 +408,7 @@ final class HistoryStore: ObservableObject {
     /// 動画の編集内容（注釈と表示時間・トリム）を書き出す。
     @discardableResult
     func saveVideoDocument(_ document: VideoDocument, for videoURL: URL) -> Bool {
+        guard fileManager.fileExists(atPath: videoURL.path) else { return false }
         do {
             let data = try JSONEncoder().encode(document)
             try data.write(to: annotationsURL(for: videoURL), options: .atomic)
@@ -397,9 +452,9 @@ final class HistoryStore: ObservableObject {
             )) ?? []).filter { url in
                 let parent = url.deletingLastPathComponent().standardizedFileURL.path
                 switch url.pathExtension.lowercased() {
-                case "png": return parent == imageFolder
-                case "mov": return parent == videoFolder
-                default:    return false
+                case "png":                        return parent == imageFolder
+                case let ext where Self.videoExtensions.contains(ext): return parent == videoFolder
+                default:                           return false
                 }
             }
         }
@@ -413,7 +468,7 @@ final class HistoryStore: ObservableObject {
                 switch url.pathExtension.lowercased() {
                 case "png":
                     return HistoryItem(url: url, date: date, pixelSize: Self.pixelSize(of: url), fileSize: fileSize)
-                case "mov":
+                case let ext where Self.videoExtensions.contains(ext):
                     let info = loadRecordingInfo(for: url)
                     return HistoryItem(
                         url: url,
@@ -470,6 +525,7 @@ final class HistoryStore: ObservableObject {
             if item.kind == .video {
                 try? fileManager.removeItem(at: recordingInfoURL(for: item.url))
                 try? fileManager.removeItem(at: posterURL(for: item.url))
+                try? fileManager.removeItem(at: editedPosterURL(for: item.url))
             }
             thumbnailCache[item.id] = nil
             if reloading { reload() }
@@ -510,7 +566,13 @@ final class HistoryStore: ObservableObject {
             }
         }
 
-        let sourceURL = item.kind == .video ? posterURL(for: item.url) : item.url
+        let sourceURL: URL
+        if item.kind == .video {
+            let edited = editedPosterURL(for: item.url)
+            sourceURL = fileManager.fileExists(atPath: edited.path) ? edited : posterURL(for: item.url)
+        } else {
+            sourceURL = item.url
+        }
         guard let source = CGImageSourceCreateWithURL(sourceURL as CFURL, nil) else { return nil }
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,

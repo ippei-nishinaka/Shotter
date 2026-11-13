@@ -32,6 +32,11 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSMenu
         return controller
     }
 
+    /// アプリの終了時に、開いているすべてのエディタの編集内容を履歴へ書き戻す。
+    static func flushAllPendingEdits() {
+        for controller in openControllers { controller.store.flushPendingAutosave() }
+    }
+
     private init(image: CGImage, pointSize: CGSize, historyURL: URL? = nil, document: AnnotationDocument? = nil) {
         store = AnnotationStore(image: image, pointSize: pointSize, historyURL: historyURL, document: document)
 
@@ -242,7 +247,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate, NSMenu
 
     /// 画像の等倍サイズを基準に、画面に収まる範囲でウィンドウサイズを決める。
     private func preferredContentSize(for pointSize: CGSize) -> CGSize {
-        let screen = NSScreen.main ?? NSScreen.screens[0]
+        // ウィンドウを置くのと同じ画面を基準にする（別の画面を基準にすると、小さい画面からはみ出す）。
+        let screen = Self.screenUnderMouse() ?? NSScreen.main ?? NSScreen.screens[0]
         let visible = screen.visibleFrame
 
         let maxCanvas = CGSize(

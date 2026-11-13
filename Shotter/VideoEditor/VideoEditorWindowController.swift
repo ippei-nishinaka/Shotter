@@ -92,24 +92,79 @@ struct VideoEditorView: View {
     }
 }
 
+/// GIF の保存ダイアログに足す設定（幅・fps）。
+@MainActor
+final class GIFOptionsModel: ObservableObject {
+    @Published var options: GIFExportOptions
+    let length: Double
+
+    init(options: GIFExportOptions, length: Double) {
+        self.options = options
+        self.length = length
+    }
+
+    var frameCountDescription: String {
+        let frames = Int((length * Double(options.framesPerSecond)).rounded(.up))
+        return "最大 \(frames) コマ（\(VideoDurationBadge.format(length))）"
+    }
+}
+
+struct GIFOptionsView: View {
+    @ObservedObject var model: GIFOptionsModel
+
+    var body: some View {
+        HStack(spacing: 16) {
+            Picker("幅", selection: $model.options.maxWidth) {
+                ForEach(GIFExportOptions.widthChoices, id: \.self) { width in
+                    Text(GIFExportOptions.widthTitle(width)).tag(width)
+                }
+            }
+            .fixedSize()
+
+            Picker("fps", selection: $model.options.framesPerSecond) {
+                ForEach(GIFExportOptions.frameRateChoices, id: \.self) { fps in
+                    Text("\(fps)").tag(fps)
+                }
+            }
+            .fixedSize()
+
+            Text(model.frameCountDescription)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+        }
+        .padding(12)
+    }
+}
+
 /// 収録した動画に注釈を付けるウィンドウ。
 @MainActor
 final class VideoEditorWindowController: NSWindowController, NSWindowDelegate, NSMenuItemValidation {
 
     private static var openControllers: [VideoEditorWindowController] = []
+    private static var loadingURLs: Set<URL> = []
+
+    /// アプリの終了時に、開いているすべてのエディタの編集内容を履歴へ書き戻す。
+    static func flushAllPendingEdits() {
+        for controller in openControllers { controller.store.flushSave() }
+    }
 
     let store: VideoEditorStore
     private var keyMonitor: Any?
 
     /// 動画を読み込んでエディタを開く。同じ動画がもう開いていれば前に出すだけにする。
     static func present(url: URL) {
-        if let existing = openControllers.first(where: { $0.store.videoURL == url }) {
+        let key = url.standardizedFileURL
+        if let existing = openControllers.first(where: { $0.store.videoURL.standardizedFileURL == key }) {
             NSApp.activate(ignoringOtherApps: true)
             existing.window?.makeKeyAndOrderFront(nil)
             return
         }
 
+        // 読み込みの途中でもう一度クリックされても、同じ動画のウィンドウを 2 つ開かない。
+        guard loadingURLs.insert(key).inserted else { return }
+
         Task { @MainActor in
+            defer { loadingURLs.remove(key) }
             do {
                 let store = try await VideoEditorStore.load(url: url)
                 let controller = VideoEditorWindowController(store: store)
@@ -301,7 +356,24 @@ final class VideoEditorWindowController: NSWindowController, NSWindowDelegate, N
         guard store.exportProgress == nil, let window else { return }
         store.pause()
 
+        // GIF は 1 コマごとに画像を丸ごと持つので、長いと非常に大きくなる。先に一言確かめる。
+        let length = store.trimEnd - store.trimStart
+        if format == .gif, length > 60 {
+            let alert = NSAlert()
+            alert.messageText = "GIF にすると大きなファイルになります"
+            alert.informativeText = "書き出す範囲が \(VideoDurationBadge.format(length)) あります。GIF は 1 分を超えると数十〜数百 MB になり、書き出しにも時間がかかります。トリムで短くするか、MP4 で書き出すのがおすすめです。"
+            alert.addButton(withTitle: "GIF で書き出す")
+            alert.addButton(withTitle: "やめる")
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+        }
+
+        let gifModel = GIFOptionsModel(options: Preferences.gifExportOptions, length: length)
         let panel = NSSavePanel()
+        if format == .gif {
+            let accessory = NSHostingView(rootView: GIFOptionsView(model: gifModel))
+            accessory.frame = CGRect(origin: .zero, size: accessory.fittingSize)
+            panel.accessoryView = accessory
+        }
         panel.allowedContentTypes = [format.contentType]
         panel.canCreateDirectories = true
         panel.nameFieldStringValue = store.videoURL.deletingPathExtension().lastPathComponent
@@ -314,9 +386,11 @@ final class VideoEditorWindowController: NSWindowController, NSWindowDelegate, N
             guard response == .OK, let url = panel.url, let self else { return }
             Preferences.lastSaveDirectory = url.deletingLastPathComponent()
 
+            if format == .gif { Preferences.gifExportOptions = gifModel.options }
+
             Task { @MainActor in
                 do {
-                    try await self.store.exportVideo(format: format, to: url)
+                    try await self.store.exportVideo(format: format, gifOptions: gifModel.options, to: url)
                     HUDPresenter.show("書き出しました: \(url.lastPathComponent)", symbolName: "checkmark.circle.fill")
                     NSWorkspace.shared.activateFileViewerSelecting([url])
                 } catch VideoExportError.cancelled {
@@ -329,6 +403,19 @@ final class VideoEditorWindowController: NSWindowController, NSWindowDelegate, N
     }
 
     // MARK: - NSWindowDelegate
+
+    /// 書き出しの途中で閉じると書き出しも止まるので、うっかり閉じないよう確かめる。
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        guard store.exportProgress != nil else { return true }
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "動画の書き出しを中止して閉じますか？"
+        alert.informativeText = "書き出しの途中です。閉じると、ここまでの書き出しは破棄されます。"
+        alert.addButton(withTitle: "書き出しを続ける")
+        alert.addButton(withTitle: "中止して閉じる")
+        return alert.runModal() == .alertSecondButtonReturn
+    }
 
     func windowWillClose(_ notification: Notification) {
         store.tearDown()

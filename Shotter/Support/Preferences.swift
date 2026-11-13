@@ -33,6 +33,8 @@ enum Preferences {
         static let videoHistoryRetention = "videoHistoryRetentionDays"
         static let imageSaveDirectory = "imageSaveDirectory"
         static let videoSaveDirectory = "videoSaveDirectory"
+        static let gifMaxWidth = "gifMaxWidth"
+        static let gifFramesPerSecond = "gifFramesPerSecond"
     }
 
     private static var defaults: UserDefaults { .standard }
@@ -116,41 +118,61 @@ enum Preferences {
         defaults.set(url?.path, forKey: key)
     }
 
+    /// 前回 GIF を書き出したときの設定。次回も同じものを初期値にする。
+    static var gifExportOptions: GIFExportOptions {
+        get {
+            var options = GIFExportOptions()
+            if let width = defaults.object(forKey: Key.gifMaxWidth) as? Int { options.maxWidth = width }
+            if let fps = defaults.object(forKey: Key.gifFramesPerSecond) as? Int { options.framesPerSecond = fps }
+            return options
+        }
+        set {
+            defaults.set(newValue.maxWidth, forKey: Key.gifMaxWidth)
+            defaults.set(newValue.framesPerSecond, forKey: Key.gifFramesPerSecond)
+        }
+    }
+
     /// 初回起動時の案内を表示済みか。
     static var hasCompletedOnboarding: Bool {
         get { defaults.bool(forKey: Key.hasCompletedOnboarding) }
         set { defaults.set(newValue, forKey: Key.hasCompletedOnboarding) }
     }
 
-    /// 範囲キャプチャを開始するグローバルホットキー。
-    static var hotKey: KeyCombo {
+    /// 範囲キャプチャを開始するグローバルホットキー。nil は「割り当てなし」。
+    static var hotKey: KeyCombo? {
         get { combo(forKey: Key.hotKey, default: .defaultAreaCapture) }
-        set { defaults.set(newValue.storageString, forKey: Key.hotKey) }
+        set { setCombo(newValue, forKey: Key.hotKey) }
     }
 
     /// ウィンドウキャプチャを開始するグローバルホットキー。
-    static var windowHotKey: KeyCombo {
+    static var windowHotKey: KeyCombo? {
         get { combo(forKey: Key.windowHotKey, default: .defaultWindowCapture) }
-        set { defaults.set(newValue.storageString, forKey: Key.windowHotKey) }
+        set { setCombo(newValue, forKey: Key.windowHotKey) }
     }
 
     /// 文字を読み取ってコピーするグローバルホットキー。
-    static var textRecognitionHotKey: KeyCombo {
+    static var textRecognitionHotKey: KeyCombo? {
         get { combo(forKey: Key.textHotKey, default: .defaultTextRecognition) }
-        set { defaults.set(newValue.storageString, forKey: Key.textHotKey) }
+        set { setCombo(newValue, forKey: Key.textHotKey) }
     }
 
     /// ウィンドウ収録を開始／停止するグローバルホットキー。
-    static var recordingHotKey: KeyCombo {
+    static var recordingHotKey: KeyCombo? {
         get { combo(forKey: Key.recordingHotKey, default: .defaultScreenRecording) }
-        set { defaults.set(newValue.storageString, forKey: Key.recordingHotKey) }
+        set { setCombo(newValue, forKey: Key.recordingHotKey) }
     }
 
-    private static func combo(forKey key: String, default fallback: KeyCombo) -> KeyCombo {
-        guard let raw = defaults.string(forKey: key),
-              let combo = KeyCombo(storageString: raw)
-        else { return fallback }
-        return combo
+    /// 「割り当てなし」を覚えておくための値。未設定（＝既定のキーを使う）と区別する。
+    private static let noHotKey = "none"
+
+    private static func combo(forKey key: String, default fallback: KeyCombo) -> KeyCombo? {
+        guard let raw = defaults.string(forKey: key) else { return fallback }
+        if raw == noHotKey { return nil }
+        return KeyCombo(storageString: raw) ?? fallback
+    }
+
+    private static func setCombo(_ combo: KeyCombo?, forKey key: String) {
+        defaults.set(combo?.storageString ?? noHotKey, forKey: key)
     }
 
     static var afterCaptureAction: AfterCaptureAction {

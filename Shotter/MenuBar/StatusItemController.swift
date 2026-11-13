@@ -5,7 +5,7 @@ import Combine
 ///
 /// 収録中はメニューの代わりに「● 経過時間」を出し、クリックで収録を止める。
 @MainActor
-final class StatusItemController: NSObject {
+final class StatusItemController: NSObject, NSMenuDelegate {
 
     private let statusItem: NSStatusItem
     private var menu: NSMenu?
@@ -36,40 +36,55 @@ final class StatusItemController: NSObject {
         button.toolTip = "Shotter"
     }
 
-    // MARK: - 収録中の表示
+    // MARK: - 収録中・予約中の表示
 
     /// 収録中だけ出すメニュー。項目は収録の状態に合わせて書き換える。
     private let recordingMenu = NSMenu()
     private let recordingTitleItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let recordingElapsedItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    /// 終了時刻を予約しているときだけ出す。
+    private let recordingStopTimeItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private lazy var stopItem = NSMenuItem(title: "停止して保存", action: #selector(stopRecording), keyEquivalent: "")
     private lazy var discardItem = NSMenuItem(title: "保存せずに破棄…", action: #selector(discardRecording), keyEquivalent: "")
 
+    /// 開始時刻を待っている間に出すメニュー。
+    private let scheduledMenu = NSMenu()
+    private let scheduledTitleItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    private let scheduledRemainingItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    private lazy var startNowItem = NSMenuItem(title: "今すぐ開始", action: #selector(startScheduledNow), keyEquivalent: "")
+    private lazy var cancelScheduleItem = NSMenuItem(title: "予約を取り消す…", action: #selector(cancelSchedule), keyEquivalent: "")
+
     private func observeRecording() {
-        recordingTitleItem.isEnabled = false
-        recordingElapsedItem.isEnabled = false
+        for item in [recordingTitleItem, recordingElapsedItem, recordingStopTimeItem, scheduledTitleItem, scheduledRemainingItem] {
+            item.isEnabled = false
+        }
         stopItem.target = self
         stopItem.image = NSImage(systemSymbolName: "stop.fill", accessibilityDescription: nil)
         discardItem.target = self
         recordingMenu.autoenablesItems = false
-        recordingMenu.items = [recordingTitleItem, recordingElapsedItem, .separator(), stopItem, discardItem]
+        recordingMenu.items = [recordingTitleItem, recordingElapsedItem, recordingStopTimeItem, .separator(), stopItem, discardItem]
 
-        let coordinator = RecordingCoordinator.shared
-        coordinator.$state
-            .combineLatest(coordinator.$elapsed, coordinator.$targetAppName)
+        startNowItem.target = self
+        startNowItem.image = NSImage(systemSymbolName: "record.circle", accessibilityDescription: nil)
+        cancelScheduleItem.target = self
+        scheduledMenu.autoenablesItems = false
+        scheduledMenu.items = [scheduledTitleItem, scheduledRemainingItem, .separator(), startNowItem, cancelScheduleItem]
+
+        // 経過時間・残り時間・予約時刻など、どれが変わっても描き直す（変わった直後の値を読む）。
+        RecordingCoordinator.shared.objectWillChange
             .receive(on: RunLoop.main)
-            .sink { [weak self] state, elapsed, appName in
-                self?.updateForRecording(state: state, elapsed: elapsed, appName: appName)
-            }
+            .sink { [weak self] _ in self?.updateForRecording() }
             .store(in: &cancellables)
     }
 
-    private func updateForRecording(state: RecordingCoordinator.State, elapsed: TimeInterval, appName: String?) {
+    private func updateForRecording() {
         guard let button = statusItem.button else { return }
+        let coordinator = RecordingCoordinator.shared
+        let appName = coordinator.targetAppName ?? "ウィンドウ"
 
-        switch state {
+        switch coordinator.state {
         case .recording, .finishing:
-            let isSaving = state == .finishing
+            let isSaving = coordinator.state == .finishing
             statusItem.length = NSStatusItem.variableLength
             statusItem.menu = recordingMenu
 
@@ -78,15 +93,40 @@ final class StatusItemController: NSObject {
             button.image = image?.withSymbolConfiguration(.init(paletteColors: [.white, .systemRed]))
             button.imagePosition = .imageLeading
             button.font = .monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
-            button.title = isSaving ? " 保存中…" : " 収録中 " + VideoDurationBadge.format(elapsed)
+            button.title = isSaving ? " 保存中…" : " 収録中 " + VideoDurationBadge.format(coordinator.elapsed)
             button.toolTip = "クリックで停止・破棄のメニューを開きます"
 
-            recordingTitleItem.title = "\(appName ?? "ウィンドウ") のウィンドウを収録中"
-            recordingElapsedItem.title = "経過時間 " + VideoDurationBadge.format(elapsed)
+            recordingTitleItem.title = "\(appName) のウィンドウを収録中"
+            recordingElapsedItem.title = "経過時間 " + VideoDurationBadge.format(coordinator.elapsed)
+            if let stopDate = coordinator.scheduledStop {
+                recordingStopTimeItem.title = "\(RecordingSchedule.timeText(stopDate)) に自動で終了します"
+                recordingStopTimeItem.isHidden = false
+            } else {
+                recordingStopTimeItem.isHidden = true
+            }
             let shortcut = HotKeyManager.shared.registeredCombos[.screenRecording].map { "（\($0.displayString)）" } ?? ""
             stopItem.title = "停止して保存" + shortcut
             stopItem.isEnabled = !isSaving
             discardItem.isEnabled = !isSaving
+
+        case .scheduled:
+            statusItem.length = NSStatusItem.variableLength
+            statusItem.menu = scheduledMenu
+
+            let start = coordinator.scheduledStart ?? Date()
+            let image = NSImage(systemSymbolName: "timer", accessibilityDescription: "収録の予約")
+            button.image = image?.withSymbolConfiguration(.init(paletteColors: [.systemOrange]))
+            button.imagePosition = .imageLeading
+            button.font = .monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
+            button.title = " \(RecordingSchedule.timeText(start)) 開始"
+            button.toolTip = "収録を予約しています。クリックで今すぐ開始・取り消しのメニューを開きます"
+
+            var title = "\(appName) のウィンドウを \(RecordingSchedule.timeText(start)) から収録"
+            if let stopDate = coordinator.scheduledStop {
+                title += "（\(RecordingSchedule.timeText(stopDate, relativeTo: start)) まで）"
+            }
+            scheduledTitleItem.title = title
+            scheduledRemainingItem.title = "開始まで " + VideoDurationBadge.format(coordinator.remainingUntilStart)
 
         default:
             guard statusItem.menu !== menu else { return }
@@ -101,6 +141,20 @@ final class StatusItemController: NSObject {
         RecordingCoordinator.shared.stop()
     }
 
+    @objc private func startScheduledNow() {
+        RecordingCoordinator.shared.startScheduledNow()
+    }
+
+    @objc private func cancelSchedule() {
+        let alert = NSAlert()
+        alert.messageText = "収録の予約を取り消しますか？"
+        alert.addButton(withTitle: "取り消す")
+        alert.addButton(withTitle: "予約したままにする")
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        RecordingCoordinator.shared.cancelSchedule()
+    }
+
     @objc private func discardRecording() {
         let alert = NSAlert()
         alert.messageText = "収録を破棄しますか？"
@@ -113,8 +167,12 @@ final class StatusItemController: NSObject {
         RecordingCoordinator.shared.discard()
     }
 
+    /// ホットキーで呼べる項目。メニューを開くたびに、今のショートカットを書き直す。
+    private var hotKeyItems: [(item: NSMenuItem, action: HotKeyAction, detail: String?)] = []
+
     private func makeMenu() -> NSMenu {
         let menu = NSMenu()
+        menu.delegate = self
 
         let capture = NSMenuItem(
             title: "範囲を選択してキャプチャ",
@@ -122,8 +180,8 @@ final class StatusItemController: NSObject {
             keyEquivalent: ""
         )
         capture.target = self
-        capture.toolTip = shortcutTooltip(for: .areaCapture)
         menu.addItem(capture)
+        hotKeyItems.append((capture, .areaCapture, nil))
 
         let captureWindow = NSMenuItem(
             title: "ウィンドウを選択してキャプチャ",
@@ -131,11 +189,8 @@ final class StatusItemController: NSObject {
             keyEquivalent: ""
         )
         captureWindow.target = self
-        captureWindow.toolTip = [
-            shortcutTooltip(for: .windowCapture),
-            "選択中に Space キーで範囲選択と切り替えられます",
-        ].compactMap { $0 }.joined(separator: "\n")
         menu.addItem(captureWindow)
+        hotKeyItems.append((captureWindow, .windowCapture, "範囲選択の途中でも、Space キーでカーソル下のウィンドウを撮れます"))
 
         let recognizeText = NSMenuItem(
             title: "文字を読み取ってコピー",
@@ -143,11 +198,8 @@ final class StatusItemController: NSObject {
             keyEquivalent: ""
         )
         recognizeText.target = self
-        recognizeText.toolTip = [
-            shortcutTooltip(for: .textRecognition),
-            "選んだ範囲の日本語・英語の文字をテキストにしてコピーします",
-        ].compactMap { $0 }.joined(separator: "\n")
         menu.addItem(recognizeText)
+        hotKeyItems.append((recognizeText, .textRecognition, "選んだ範囲の日本語・英語の文字をテキストにしてコピーします"))
 
         menu.addItem(.separator())
 
@@ -157,11 +209,11 @@ final class StatusItemController: NSObject {
             keyEquivalent: ""
         )
         record.target = self
-        record.toolTip = [
-            shortcutTooltip(for: .screenRecording),
-            "選んだウィンドウを動画で収録します。もう一度ショートカットを押すか、メニューバーの「● 収録中」から止められます",
-        ].compactMap { $0 }.joined(separator: "\n")
         menu.addItem(record)
+        hotKeyItems.append((
+            record, .screenRecording,
+            "選んだウィンドウを動画で収録します。もう一度ショートカットを押すか、メニューバーの「● 収録中」から止められます"
+        ))
 
         menu.addItem(.separator())
 
@@ -171,7 +223,7 @@ final class StatusItemController: NSObject {
             keyEquivalent: ""
         )
         history.target = self
-        history.toolTip = "撮影した画像を後から取り出せます"
+        history.toolTip = "撮影した画像や収録した動画を後から取り出せます"
         menu.addItem(history)
 
         menu.addItem(.separator())
@@ -209,12 +261,32 @@ final class StatusItemController: NSObject {
         )
         menu.addItem(quit)
 
+        refreshShortcuts()
         return menu
     }
 
-    private func shortcutTooltip(for action: HotKeyAction) -> String? {
-        guard let combo = HotKeyManager.shared.registeredCombos[action] else { return nil }
-        return "ショートカット: \(combo.displayString)"
+    /// 設定でホットキーを変えたあとも正しく出るよう、開く直前に書き直す。
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        guard menu === self.menu else { return }
+        refreshShortcuts()
+    }
+
+    /// 登録できているホットキーを、項目の右側（出せないキーはツールチップ）に出す。
+    private func refreshShortcuts() {
+        for entry in hotKeyItems {
+            let combo = HotKeyManager.shared.registeredCombos[entry.action]
+            if let equivalent = combo?.menuKeyEquivalent {
+                entry.item.keyEquivalent = equivalent.key
+                entry.item.keyEquivalentModifierMask = equivalent.modifiers
+            } else {
+                entry.item.keyEquivalent = ""
+                entry.item.keyEquivalentModifierMask = []
+            }
+            entry.item.toolTip = [
+                combo.map { "ショートカット: \($0.displayString)" },
+                entry.detail,
+            ].compactMap { $0 }.joined(separator: "\n")
+        }
     }
 
     // MARK: - Actions
@@ -249,9 +321,17 @@ final class StatusItemController: NSObject {
 
     /// 新しいプロセスを立ち上げてから自分を終了する。
     @objc private func relaunch() {
-        let configuration = NSWorkspace.OpenConfiguration()
-        configuration.createsNewApplicationInstance = true
-        NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: configuration) { _, _ in }
-        NSApp.terminate(nil)
+        guard AppDelegate.confirmQuitIfScheduled() else { return }
+
+        Task { @MainActor in
+            // 収録中なら先に保存を済ませる。新しいプロセスは起動時に書きかけの収録ファイルを
+            // 履歴へ移すので、書いている途中で立ち上げるとファイルを横取りされてしまう。
+            await RecordingCoordinator.shared.finishBeforeTermination()
+
+            let configuration = NSWorkspace.OpenConfiguration()
+            configuration.createsNewApplicationInstance = true
+            NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: configuration) { _, _ in }
+            NSApp.terminate(nil)
+        }
     }
 }

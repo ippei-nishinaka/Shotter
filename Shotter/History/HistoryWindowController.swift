@@ -54,7 +54,9 @@ struct HistoryView: View {
     private let columns = [GridItem(.adaptive(minimum: 190, maximum: 260), spacing: 14)]
 
     private var shownItems: [HistoryItem] {
-        store.items.filter(filter.includes)
+        // サムネイルが描き直されたら一覧も描き直す。
+        _ = store.thumbnailRevision
+        return store.items.filter(filter.includes)
     }
 
     var body: some View {

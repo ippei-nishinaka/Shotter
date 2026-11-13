@@ -127,8 +127,19 @@ final class AnnotationStore: ObservableObject {
         guard !hiddenAnnotationIDs.isEmpty else { return annotations }
         return annotations.filter { !hiddenAnnotationIDs.contains($0.id) }
     }
-    @Published private(set) var undoStack: [[Annotation]] = []
-    @Published private(set) var redoStack: [[Annotation]] = []
+    /// アンドゥ 1 手分。注釈のほか、エディタ固有の状態（動画の表示時間など）も一緒に積む。
+    struct UndoSnapshot {
+        var annotations: [Annotation]
+        var extra: Any?
+    }
+
+    @Published private(set) var undoStack: [UndoSnapshot] = []
+    @Published private(set) var redoStack: [UndoSnapshot] = []
+
+    /// 注釈と一緒にアンドゥしたい状態を取り出す・戻す。動画エディタが表示時間とトリムを預ける。
+    /// こうしておくと、注釈の操作と表示時間の変更が 1 本の履歴に並び、⌘Z で新しい順に戻せる。
+    var captureExtraUndoState: (() -> Any)?
+    var restoreExtraUndoState: ((Any) -> Void)?
 
     /// 画像の周りに影を付けるか。注釈の座標系には影響しない（描画時だけ余白を足す）。
     ///
@@ -418,16 +429,23 @@ final class AnnotationStore: ObservableObject {
 
     func undo() {
         guard let previous = undoStack.popLast() else { return }
-        redoStack.append(annotations.map { $0.copy() })
-        annotations = previous
-        dropSelectionIfMissing()
-        didChange()
+        redoStack.append(currentSnapshot())
+        restore(previous)
     }
 
     func redo() {
         guard let next = redoStack.popLast() else { return }
-        undoStack.append(annotations.map { $0.copy() })
-        annotations = next
+        undoStack.append(currentSnapshot())
+        restore(next)
+    }
+
+    private func currentSnapshot() -> UndoSnapshot {
+        UndoSnapshot(annotations: annotations.map { $0.copy() }, extra: captureExtraUndoState?())
+    }
+
+    private func restore(_ snapshot: UndoSnapshot) {
+        annotations = snapshot.annotations
+        if let extra = snapshot.extra { restoreExtraUndoState?(extra) }
         dropSelectionIfMissing()
         didChange()
     }
@@ -461,7 +479,7 @@ final class AnnotationStore: ObservableObject {
     }
 
     private func pushUndoSnapshot() {
-        undoStack.append(annotations.map { $0.copy() })
+        undoStack.append(currentSnapshot())
         redoStack.removeAll()
     }
 }

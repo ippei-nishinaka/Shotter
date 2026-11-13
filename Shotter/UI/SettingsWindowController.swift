@@ -8,7 +8,7 @@ final class SettingsModel: ObservableObject {
     @Published var areaHotKey: KeyCombo? {
         didSet {
             guard areaHotKey != oldValue else { return }
-            if let areaHotKey { Preferences.hotKey = areaHotKey }
+            Preferences.hotKey = areaHotKey
             areaHotKeyFailed = !CaptureCoordinator.shared.applyHotKey(areaHotKey, for: .areaCapture)
         }
     }
@@ -16,7 +16,7 @@ final class SettingsModel: ObservableObject {
     @Published var windowHotKey: KeyCombo? {
         didSet {
             guard windowHotKey != oldValue else { return }
-            if let windowHotKey { Preferences.windowHotKey = windowHotKey }
+            Preferences.windowHotKey = windowHotKey
             windowHotKeyFailed = !CaptureCoordinator.shared.applyHotKey(windowHotKey, for: .windowCapture)
         }
     }
@@ -24,7 +24,7 @@ final class SettingsModel: ObservableObject {
     @Published var textHotKey: KeyCombo? {
         didSet {
             guard textHotKey != oldValue else { return }
-            if let textHotKey { Preferences.textRecognitionHotKey = textHotKey }
+            Preferences.textRecognitionHotKey = textHotKey
             textHotKeyFailed = !CaptureCoordinator.shared.applyHotKey(textHotKey, for: .textRecognition)
         }
     }
@@ -32,7 +32,7 @@ final class SettingsModel: ObservableObject {
     @Published var recordingHotKey: KeyCombo? {
         didSet {
             guard recordingHotKey != oldValue else { return }
-            if let recordingHotKey { Preferences.recordingHotKey = recordingHotKey }
+            Preferences.recordingHotKey = recordingHotKey
             recordingHotKeyFailed = !CaptureCoordinator.shared.applyHotKey(recordingHotKey, for: .screenRecording)
         }
     }
@@ -319,11 +319,12 @@ struct SettingsView: View {
                 Spacer()
                 HotKeyRecorder(combo: combo)
                     .frame(width: 170, height: 24)
+                    .help("クリックしてからキーを押すと変更できます。Delete で割り当てなし、Esc でキャンセル")
             }
 
             if failed {
                 Label(
-                    "他のアプリが使用中のため登録できませんでした",
+                    "他の操作や他のアプリが使用中のため登録できませんでした",
                     systemImage: "exclamationmark.triangle.fill"
                 )
                 .font(.caption)
@@ -401,7 +402,7 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Toggle("最初から影を付ける", isOn: $model.addsShadowByDefault)
                     Toggle("最初から角を丸める", isOn: $model.roundsCornersByDefault)
-                    Text("どちらもオフのままでも、エディタで S / O キーを押せばその 1 枚だけ切り替えられます。")
+                    Text("どちらもオフのままでも、エディタで S / R キーを押せばその 1 枚だけ切り替えられます。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -445,7 +446,7 @@ struct SettingsView: View {
                 }
 
                 Picker("マイク", selection: $model.microphone) {
-                    MicrophonePickerItems(devices: model.microphones)
+                    MicrophonePickerItems(devices: model.microphones, selection: model.microphone)
                 }
 
                 Toggle("マウスポインタを写す", isOn: $model.showsCursorInRecording)
@@ -474,7 +475,7 @@ struct SettingsView: View {
                             Text(retention.title).tag(retention)
                         }
                     }
-                    Text("期間を過ぎたものは、起動時と設定変更時にディスクから削除されます。動画を「保存しない」にした場合、収録した動画はムービーフォルダの Shotter に保存されます。")
+                    Text("期間を過ぎたものは、自動でディスクから削除されます（起動時・設定変更時と、起動中は 1 時間ごと）。動画を「保存しない」にした場合、収録した動画はムービーフォルダの Shotter に保存されます。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -592,6 +593,8 @@ final class SettingsWindowController: NSWindowController {
         window.isReleasedWhenClosed = false
 
         super.init(window: window)
+        // 閉じたら作り直す。収録前のバーなど、他の場所で変えた設定を次に開いたとき読み直すため。
+        window.delegate = self
 
         let model = SettingsModel()
         let hosting = NSHostingView(rootView: SettingsView(model: model))
@@ -612,10 +615,6 @@ final class SettingsWindowController: NSWindowController {
         fatalError("init(coder:) has not been implemented")
     }
 
-    override func windowDidLoad() {
-        super.windowDidLoad()
-        window?.delegate = self
-    }
 }
 
 extension SettingsWindowController: NSWindowDelegate {

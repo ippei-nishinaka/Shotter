@@ -82,6 +82,13 @@ enum MicrophoneChoice {
 /// マイクのポップアップの中身。収録前のバーと設定画面で共有する。
 struct MicrophonePickerItems: View {
     let devices: [MicrophoneDevice]
+    /// 今選んでいるもの。前に選んだマイク（AirPods など）が今つながっていなくても、空欄にせず出す。
+    let selection: String
+
+    private var isDisconnectedDevice: Bool {
+        selection != MicrophoneChoice.off && selection != MicrophoneChoice.systemDefault
+            && !devices.contains { $0.id == selection }
+    }
 
     var body: some View {
         Text("使わない").tag(MicrophoneChoice.off)
@@ -89,6 +96,10 @@ struct MicrophonePickerItems: View {
         Text("既定のマイク").tag(MicrophoneChoice.systemDefault)
         ForEach(devices) { device in
             Text(device.name).tag(device.id)
+        }
+        if isDisconnectedDevice {
+            // 収録するときにつながっていなければ、既定のマイクで録る。
+            Text("前に選んだマイク（今はつながっていません）").tag(selection)
         }
     }
 }
@@ -115,6 +126,17 @@ final class RecordingSetupModel: ObservableObject {
         didSet { Preferences.recordingQuality = quality }
     }
 
+    // MARK: 予約
+
+    /// 開始をすぐにするか、時刻を指定するか。
+    @Published var startsAtTime = false
+    /// 開始する時刻（時・分だけを使う）。
+    @Published var startTime = RecordingSchedule.nextRoundTime()
+    /// 終了も時刻で自動にするか。
+    @Published var stopsAtTime = false
+    /// 終了する時刻（時・分だけを使う）。
+    @Published var stopTime = RecordingSchedule.nextRoundTime().addingTimeInterval(60 * 60)
+
     let appName: String
     /// ウィンドウの大きさを変えると更新する。
     @Published var pixelSizeDescription: String
@@ -123,6 +145,43 @@ final class RecordingSetupModel: ObservableObject {
     init(appName: String, pixelSizeDescription: String) {
         self.appName = appName
         self.pixelSizeDescription = pixelSizeDescription
+        #if DEBUG
+        // --debug-schedule-ui で、開始・終了の時刻を指定した状態で開く（見た目の確認用）。
+        if CommandLine.arguments.contains("--debug-schedule-ui") {
+            startsAtTime = true
+            stopsAtTime = true
+        }
+        #endif
+    }
+
+    /// 入力した時刻を、実際の日時にしたもの。過ぎた時刻は翌日、終了は開始より後のいちばん近い時刻。
+    func resolvedSchedule(now: Date = Date()) -> RecordingSchedule {
+        let start = startsAtTime ? RecordingSchedule.nextOccurrence(of: startTime, after: now) : nil
+        let stop = stopsAtTime ? RecordingSchedule.nextOccurrence(of: stopTime, after: start ?? now) : nil
+        return RecordingSchedule(start: start, stop: stop)
+    }
+
+    /// 「14:00 に開始して、15:30 に自動で終了（1 時間 30 分）。開始まで 12 分」のような確認の文。
+    var scheduleSummary: String {
+        let now = Date()
+        let schedule = resolvedSchedule(now: now)
+        var parts: [String] = []
+        if let start = schedule.start {
+            parts.append("\(RecordingSchedule.timeText(start, relativeTo: now)) に開始")
+        } else {
+            parts.append("すぐに開始")
+        }
+        if let stop = schedule.stop {
+            let length = stop.timeIntervalSince(schedule.start ?? now)
+            parts.append("\(RecordingSchedule.timeText(stop, relativeTo: now)) に自動で終了（\(RecordingSchedule.durationText(length))）")
+        } else {
+            parts.append("止めるまで続けます")
+        }
+        var text = parts.joined(separator: "して、")
+        if let start = schedule.start {
+            text += "。開始まで \(RecordingSchedule.durationText(start.timeIntervalSince(now)))"
+        }
+        return text
     }
 
     var footnote: String {
@@ -130,7 +189,9 @@ final class RecordingSetupModel: ObservableObject {
             systemAudio: sound != .none,
             microphone: microphone != MicrophoneChoice.off
         )
-        let stop = "止めるときは \(Preferences.recordingHotKey.displayString) か、メニューバーの「● 収録中」から"
+        // 実際に登録できているキーだけを案内する（割り当てなし・他アプリと競合のときは出さない）。
+        let stop = HotKeyManager.shared.registeredCombos[.screenRecording]
+            .map { "止めるときは \($0.displayString) か、メニューバーから" } ?? "止めるときはメニューバーから"
         return "\(size)　·　\(stop)"
     }
 }
@@ -140,6 +201,43 @@ struct RecordingSetupView: View {
     @ObservedObject var model: RecordingSetupModel
     let onStart: () -> Void
     let onCancel: () -> Void
+
+    /// 開始・終了の時刻。切り替えても大きさが変わらないよう、時刻の欄は常に出して無効にするだけにする。
+    private var scheduleRows: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                Text("開始").frame(width: 30, alignment: .leading)
+                Picker("開始", selection: $model.startsAtTime) {
+                    Text("すぐに").tag(false)
+                    Text("時刻を指定").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+                DatePicker("開始時刻", selection: $model.startTime, displayedComponents: .hourAndMinute)
+                    .labelsHidden()
+                    .fixedSize()
+                    .disabled(!model.startsAtTime)
+
+                Text("終了").frame(width: 30, alignment: .leading)
+                    .padding(.leading, 8)
+                Toggle("時刻で自動終了", isOn: $model.stopsAtTime)
+                    .toggleStyle(.checkbox)
+                    .fixedSize()
+                DatePicker("終了時刻", selection: $model.stopTime, displayedComponents: .hourAndMinute)
+                    .labelsHidden()
+                    .fixedSize()
+                    .disabled(!model.stopsAtTime)
+            }
+
+            // 毎秒「開始まで…」を数え直す。
+            TimelineView(.periodic(from: .now, by: 1)) { _ in
+                Label(model.scheduleSummary, systemImage: model.startsAtTime ? "timer" : "record.circle")
+                    .font(.system(size: 11).monospacedDigit())
+                    .foregroundStyle(model.startsAtTime || model.stopsAtTime ? Color.primary : Color.secondary)
+            }
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -166,7 +264,7 @@ struct RecordingSetupView: View {
                 .help("「\(model.appName) の音だけ」なら、他のアプリの通知音などは入りません")
 
                 Picker("マイク", selection: $model.microphone) {
-                    MicrophonePickerItems(devices: model.microphones)
+                    MicrophonePickerItems(devices: model.microphones, selection: model.microphone)
                 }
                 .fixedSize()
 
@@ -178,6 +276,8 @@ struct RecordingSetupView: View {
                 .fixedSize()
                 .help(model.quality.detail)
             }
+
+            scheduleRows
 
             HStack(spacing: 10) {
                 Toggle("マウスポインタを写す", isOn: $model.showsCursor)
@@ -191,8 +291,17 @@ struct RecordingSetupView: View {
                     .fixedSize()
 
                 Button(action: onStart) {
-                    Label("収録開始", systemImage: "record.circle.fill")
-                        .padding(.horizontal, 6)
+                    // 「収録開始」と「予約する」でボタンの幅が変わらないよう、長いほうの幅を確保する。
+                    ZStack {
+                        Label("収録開始", systemImage: "record.circle.fill").hidden()
+                        Label("予約する", systemImage: "timer").hidden()
+                        if model.startsAtTime {
+                            Label("予約する", systemImage: "timer")
+                        } else {
+                            Label("収録開始", systemImage: "record.circle.fill")
+                        }
+                    }
+                    .padding(.horizontal, 6)
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(.red)
@@ -225,8 +334,15 @@ struct RecordingSetupView: View {
 @MainActor
 enum RecordingSetupPanel {
 
-    /// - Returns: 「収録開始」ならその時点のウィンドウの位置と大きさ、キャンセルなら nil。
-    static func run(windowID: CGWindowID, initialFrame: CGRect, appName: String) async -> CGRect? {
+    /// 収録前のバーで決めたこと。
+    struct Result {
+        /// 決めた時点のウィンドウの位置と大きさ。
+        var frame: CGRect
+        var schedule: RecordingSchedule
+    }
+
+    /// - Returns: 「収録開始」「予約する」ならその内容、キャンセルなら nil。
+    static func run(windowID: CGWindowID, initialFrame: CGRect, appName: String) async -> Result? {
         let model = RecordingSetupModel(appName: appName, pixelSizeDescription: sizeText(for: initialFrame))
         var targetFrame = initialFrame
 
@@ -296,7 +412,7 @@ enum RecordingSetupPanel {
         panel?.orderOut(nil)
         border.orderOut()
         dimmers.forEach { $0.orderOut() }
-        return started ? targetFrame : nil
+        return started ? Result(frame: targetFrame, schedule: model.resolvedSchedule()) : nil
     }
 
     private static func sizeText(for frame: CGRect) -> String {

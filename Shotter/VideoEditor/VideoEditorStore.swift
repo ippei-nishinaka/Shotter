@@ -58,6 +58,7 @@ final class VideoEditorStore: ObservableObject {
     private var cancellables: Set<AnyCancellable> = []
     private var frameRequest: Task<Void, Never>?
     private var saveWorkItem: DispatchWorkItem?
+    private var thumbnailWorkItem: DispatchWorkItem?
     private var exporter: VideoExporter?
 
     // MARK: - 読み込み
@@ -147,7 +148,32 @@ final class VideoEditorStore: ObservableObject {
         updateVisibility()
     }
 
+    /// アンドゥで一緒に戻す、タイムライン側の状態。
+    private struct TimelineUndoState {
+        var ranges: [UUID: AnnotationTimeRange]
+        var trimStart: Double
+        var trimEnd: Double
+    }
+
+    /// タイムラインのバーやトリムをドラッグしている間か。ドラッグ 1 回でアンドゥ 1 手にまとめる。
+    private var isDraggingTimeline = false
+    private var didRecordUndoForDrag = false
+
     private func observe() {
+        // 表示時間とトリムを、注釈と同じアンドゥ履歴に載せる。
+        annotationStore.captureExtraUndoState = { [weak self] in
+            guard let self else { return () }
+            return TimelineUndoState(ranges: self.ranges, trimStart: self.trimStart, trimEnd: self.trimEnd)
+        }
+        annotationStore.restoreExtraUndoState = { [weak self] value in
+            guard let self, let state = value as? TimelineUndoState else { return }
+            self.ranges = state.ranges
+            self.trimStart = state.trimStart
+            self.trimEnd = state.trimEnd
+            self.updateVisibility()
+            self.scheduleSave()
+        }
+
         let interval = CMTime(value: 1, timescale: 30)
         timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
             MainActor.assumeIsolated { self?.playerDidTick(time.seconds) }
@@ -180,6 +206,11 @@ final class VideoEditorStore: ObservableObject {
         frameRequest?.cancel()
         exporter?.cancel()
         flushSave()
+        if thumbnailWorkItem != nil {
+            thumbnailWorkItem?.cancel()
+            thumbnailWorkItem = nil
+            updateHistoryThumbnail()
+        }
     }
 
     // MARK: - 再生
@@ -293,9 +324,31 @@ final class VideoEditorStore: ObservableObject {
                 end = min(duration, start + Self.minimumRangeDuration)
             }
         }
-        ranges[id] = AnnotationTimeRange(start: start, end: end)
+        let newRange = AnnotationTimeRange(start: start, end: end)
+        guard ranges[id] != newRange else { return }
+        recordTimelineUndo()
+        ranges[id] = newRange
         updateVisibility()
         scheduleSave()
+    }
+
+    /// タイムラインでバーやトリムのつまみを掴んだとき・離したとき。
+    func beginTimelineDrag() {
+        isDraggingTimeline = true
+        didRecordUndoForDrag = false
+    }
+
+    func endTimelineDrag() {
+        isDraggingTimeline = false
+    }
+
+    /// 変える直前の状態をアンドゥ履歴に積む。ドラッグ中は最初の 1 回だけ。
+    private func recordTimelineUndo() {
+        if isDraggingTimeline {
+            guard !didRecordUndoForDrag else { return }
+            didRecordUndoForDrag = true
+        }
+        annotationStore.beginMutation()
     }
 
     /// 長さを変えずに位置だけずらす。
@@ -357,6 +410,8 @@ final class VideoEditorStore: ObservableObject {
     func setTrim(start: Double, end: Double) {
         let start = min(max(start, 0), duration - Self.minimumRangeDuration)
         let end = min(max(end, start + Self.minimumRangeDuration), duration)
+        guard start != trimStart || end != trimEnd else { return }
+        recordTimelineUndo()
         trimStart = start
         trimEnd = end
         scheduleSave()
@@ -391,6 +446,54 @@ final class VideoEditorStore: ObservableObject {
         }
         saveWorkItem = workItem
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: workItem)
+        scheduleThumbnailUpdate()
+    }
+
+    // MARK: - 履歴のサムネイル
+
+    /// 注釈を描き換えるたびに作り直すと重いので、手が止まってから作る。
+    private func scheduleThumbnailUpdate() {
+        thumbnailWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.thumbnailWorkItem = nil
+            self?.updateHistoryThumbnail()
+        }
+        thumbnailWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: workItem)
+    }
+
+    /// 注釈がいちばん多く出ている時刻のコマに注釈を乗せて、履歴のサムネイルにする。
+    private func updateHistoryThumbnail() {
+        let annotations = annotationStore.annotations.map { $0.copy() }
+        guard !annotations.isEmpty, let time = thumbnailTime(for: annotations) else {
+            HistoryStore.shared.saveEditedPoster(nil, for: videoURL)
+            return
+        }
+
+        let visible = annotations.filter { ranges[$0.id].map { isVisible($0, at: time) } ?? false }
+        let counterStart = annotationStore.counterStartNumber
+        let url = videoURL
+        Task { [imageGenerator] in
+            guard let frame = try? await imageGenerator.image(at: CMTime(seconds: time, preferredTimescale: 600)).image,
+                  let image = VideoFrameRenderer.render(
+                    frame: frame,
+                    annotations: visible,
+                    numberingFrom: annotations,
+                    counterStartNumber: counterStart
+                  )
+            else { return }
+            HistoryStore.shared.saveEditedPoster(image, for: url)
+        }
+    }
+
+    /// 各注釈が出始める瞬間のうち、同時に出ている注釈がいちばん多い時刻（同じなら早いほう）。
+    private func thumbnailTime(for annotations: [Annotation]) -> Double? {
+        let candidates = annotations.compactMap { ranges[$0.id]?.start }.map { min($0 + 0.05, duration) }.sorted()
+        return candidates.max { lhs, rhs in
+            let left = annotations.filter { ranges[$0.id].map { isVisible($0, at: lhs) } ?? false }.count
+            let right = annotations.filter { ranges[$0.id].map { isVisible($0, at: rhs) } ?? false }.count
+            return left < right || (left == right && lhs > rhs)
+        }
     }
 
     func flushSave() {
@@ -403,7 +506,11 @@ final class VideoEditorStore: ObservableObject {
     // MARK: - 書き出し
 
     /// 注釈を焼き込んだ動画を書き出す。
-    func exportVideo(format: VideoExportFormat, to outputURL: URL) async throws {
+    func exportVideo(
+        format: VideoExportFormat,
+        gifOptions: GIFExportOptions = GIFExportOptions(),
+        to outputURL: URL
+    ) async throws {
         guard exporter == nil else { return }
         if isPlaying { player.pause() }
 
@@ -417,7 +524,8 @@ final class VideoEditorStore: ObservableObject {
                 trimStart: trimStart,
                 trimEnd: trimEnd,
                 duration: duration,
-                counterStartNumber: annotationStore.counterStartNumber
+                counterStartNumber: annotationStore.counterStartNumber,
+                gifOptions: gifOptions
             )
         )
         self.exporter = exporter

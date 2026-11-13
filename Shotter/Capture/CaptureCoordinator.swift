@@ -13,7 +13,8 @@ final class CaptureCoordinator {
 
     private let captureService = ScreenCaptureService()
     private let selectionController = AreaSelectionController()
-    private var isBusy = false
+    /// 撮影の途中（画面のフリーズ〜範囲選択〜切り出し）か。
+    private(set) var isBusy = false
 
     /// 直近のキャプチャ結果。ステップ3の注釈ウィンドウで利用する予定。
     private(set) var lastCapturedImage: CGImage?
@@ -70,6 +71,13 @@ final class CaptureCoordinator {
 
     private func startCapture(mode: CaptureMode, purpose: CapturePurpose = .screenshot) {
         guard !isBusy else { return }
+
+        // 収録の準備中（ウィンドウ選択・収録前のバー・カウントダウン）は、選択用のオーバーレイが
+        // 重なって操作できなくなるので受け付けない。収録中の撮影はそのままできる。
+        guard !RecordingCoordinator.shared.isSettingUp else {
+            NSSound.beep()
+            return
+        }
 
         guard captureService.hasScreenRecordingPermission else {
             // 初回はシステム標準のダイアログを出しつつ、手順の案内ウィンドウを開く。

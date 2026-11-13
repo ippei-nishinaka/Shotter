@@ -318,18 +318,22 @@ extension DebugSupport {
         window.orderFrontRegardless()
 
         Task { @MainActor in
-            _ = await RecordingSetupPanel.run(
-                windowID: CGWindowID(window.windowNumber),
-                initialFrame: window.frame,
-                appName: "収録テスト"
-            )
-        }
-
-        Task { @MainActor in
             defer { NSApp.terminate(nil) }
             // ウィンドウを大きくしても収まる範囲を撮る。
             let region = CGRect(x: visible.midX - 560, y: visible.midY - 380, width: 1120, height: 760)
             do {
+                // 暗転が効いているか比べられるよう、バーを出す前の画面も撮っておく。
+                try await Task.sleep(nanoseconds: 400_000_000)
+                try await captureScreenRegion(region, to: URL(fileURLWithPath: folder).appendingPathComponent("bar-0-plain.png"))
+
+                Task { @MainActor in
+                    _ = await RecordingSetupPanel.run(
+                        windowID: CGWindowID(window.windowNumber),
+                        initialFrame: window.frame,
+                        appName: "収録テスト"
+                    )
+                }
+
                 try await Task.sleep(nanoseconds: 900_000_000)
                 try await captureScreenRegion(region, to: URL(fileURLWithPath: folder).appendingPathComponent("bar-1-before.png"))
 
@@ -374,7 +378,15 @@ extension DebugSupport {
     @MainActor
     static func dumpRecordingStatusBarAndQuit() {
         guard let path = stringArgument(named: "--debug-recording-statusbar") else { NSApp.terminate(nil); return }
-        RecordingCoordinator.shared.debugSimulateRecording(elapsed: 754, appName: "Google Chrome")
+        // --debug-scheduled を付けると、予約中の表示を確かめる。
+        if CommandLine.arguments.contains("--debug-scheduled") {
+            let start = Date().addingTimeInterval(754)
+            RecordingCoordinator.shared.debugSimulateScheduled(
+                start: start, stop: start.addingTimeInterval(90 * 60), appName: "Google Chrome"
+            )
+        } else {
+            RecordingCoordinator.shared.debugSimulateRecording(elapsed: 754, appName: "Google Chrome")
+        }
 
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 600_000_000)
@@ -573,6 +585,38 @@ extension DebugSupport {
         }
     }
 
+    /// GIF のコマ数・合計の再生時間・大きさを出し、元の時刻 2・4.5・6.5・8.5 秒にあたるコマを PNG にする。
+    private static func inspectGIF(at url: URL, elapsed: Double, folder: URL) throws {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else {
+            log("gif: 読めませんでした")
+            return
+        }
+        let count = CGImageSourceGetCount(source)
+        var delays: [Double] = []
+        for index in 0..<count {
+            let properties = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any]
+            let gif = properties?[kCGImagePropertyGIFDictionary] as? [CFString: Any]
+            delays.append((gif?[kCGImagePropertyGIFUnclampedDelayTime] as? Double)
+                ?? (gif?[kCGImagePropertyGIFDelayTime] as? Double) ?? 0)
+        }
+        let first = CGImageSourceCreateImageAtIndex(source, 0, nil)
+        let bytes = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
+        log("gif: \(count) コマ・合計 \(String(format: "%.2f", delays.reduce(0, +))) 秒・\(first?.width ?? 0) × \(first?.height ?? 0)・\(bytes) バイト・書き出し \(String(format: "%.1f", elapsed)) 秒")
+
+        // 書き出した GIF は 1 秒から始まるので、元の時刻から 1 を引いた位置のコマを探す。
+        for original in [2.0, 4.5, 6.5, 8.5] {
+            var elapsedInGIF = 0.0
+            var index = 0
+            while index < count - 1, elapsedInGIF + delays[index] <= original - 1 {
+                elapsedInGIF += delays[index]
+                index += 1
+            }
+            guard let image = CGImageSourceCreateImageAtIndex(source, index, nil) else { continue }
+            let path = folder.appendingPathComponent(String(format: "gif-%04.1f.png", original))
+            try NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?.write(to: path)
+        }
+    }
+
     /// `--debug-video-export <出力フォルダ>` で、注釈を置いた動画を 1〜9 秒にトリムして
     /// MP4 と MOV に書き出し、2・4.5・6.5・8.5 秒（元の時刻）のコマを PNG にする。
     @MainActor
@@ -595,6 +639,11 @@ extension DebugSupport {
                     let started = Date()
                     try await store.exportVideo(format: format, to: output)
                     let elapsed = Date().timeIntervalSince(started)
+
+                    if format == .gif {
+                        try inspectGIF(at: output, elapsed: elapsed, folder: folder)
+                        continue
+                    }
 
                     let asset = AVURLAsset(url: output)
                     let duration = try await asset.load(.duration).seconds
@@ -723,6 +772,293 @@ extension DebugSupport {
 
             // 片付け
             try? FileManager.default.removeItem(at: work)
+        }
+    }
+}
+#endif
+
+#if DEBUG
+// MARK: - アンドゥ・サムネイル・外部の動画
+
+extension DebugSupport {
+
+    /// `--debug-video-undo` で、表示時間とトリムの変更が ⌘Z / ⇧⌘Z で戻るかを確かめる。
+    @MainActor
+    static func checkVideoUndoAndQuit() {
+        Task { @MainActor in
+            defer { NSApp.terminate(nil) }
+            do {
+                let url = try await debugVideoURL()
+                let store = try await VideoEditorStore.load(url: url)
+                addTimedSampleAnnotations(to: store)
+                let annotations = store.annotationStore
+                guard let rectangle = annotations.annotations.first(where: { $0 is RectangleAnnotation }) else { return }
+                @MainActor func describe() -> String {
+                    let range = store.range(for: rectangle.id)
+                    return String(format: "四角 %.1f〜%.1f・トリム %.1f〜%.1f・注釈 %d 個",
+                                  range?.start ?? -1, range?.end ?? -1, store.trimStart, store.trimEnd,
+                                  annotations.annotations.count)
+                }
+                var allPassed = true
+                @MainActor func check(_ label: String, _ expected: String) {
+                    let actual = describe()
+                    let passed = actual == expected
+                    allPassed = allPassed && passed
+                    log("\(passed ? "✓" : "✗") \(label): \(actual)\(passed ? "" : "（期待: \(expected)）")")
+                }
+
+                check("はじめ", "四角 2.0〜6.0・トリム 0.0〜10.0・注釈 4 個")
+
+                store.setRange(rectangle.id, start: 3, end: 7)
+                check("秒数で 3〜7 に変更", "四角 3.0〜7.0・トリム 0.0〜10.0・注釈 4 個")
+                annotations.undo()
+                check("⌘Z", "四角 2.0〜6.0・トリム 0.0〜10.0・注釈 4 個")
+
+                // ドラッグは何度も値が変わっても 1 手にまとまる。
+                store.beginTimelineDrag()
+                for step in 1...10 { store.moveRange(rectangle.id, toStart: 2 + Double(step) * 0.2) }
+                store.endTimelineDrag()
+                check("バーをドラッグで 4〜8 へ", "四角 4.0〜8.0・トリム 0.0〜10.0・注釈 4 個")
+                annotations.undo()
+                check("⌘Z 1 回でドラッグ前へ", "四角 2.0〜6.0・トリム 0.0〜10.0・注釈 4 個")
+
+                store.setTrim(start: 1, end: 9)
+                check("トリム 1〜9", "四角 2.0〜6.0・トリム 1.0〜9.0・注釈 4 個")
+                annotations.undo()
+                check("⌘Z", "四角 2.0〜6.0・トリム 0.0〜10.0・注釈 4 個")
+                annotations.redo()
+                check("⇧⌘Z", "四角 2.0〜6.0・トリム 1.0〜9.0・注釈 4 個")
+
+                // 注釈の操作と表示時間の変更が、新しい順に戻ること。
+                // アンドゥ・リドゥで中身は複製に入れ替わるので、今の四角を取り直してから消す。
+                if let current = annotations.annotations.first(where: { $0.id == rectangle.id }) {
+                    annotations.remove(current)
+                }
+                check("四角を削除", "四角 2.0〜6.0・トリム 1.0〜9.0・注釈 3 個")
+                annotations.undo()
+                check("⌘Z で四角が戻る", "四角 2.0〜6.0・トリム 1.0〜9.0・注釈 4 個")
+                annotations.undo()
+                check("もう 1 回 ⌘Z でトリムが戻る", "四角 2.0〜6.0・トリム 0.0〜10.0・注釈 4 個")
+
+                log(allPassed ? "→ 表示時間とトリムの取り消しは正しく動いています" : "→ 取り消しに誤りがあります")
+                store.tearDown()
+            } catch {
+                log("失敗: \(error)")
+            }
+        }
+    }
+
+    /// `--debug-video-thumbnail <出力フォルダ>` で、注釈を付けた動画の履歴サムネイル（注釈込みのコマ）ができるかを確かめる。
+    @MainActor
+    static func checkVideoThumbnailAndQuit() {
+        guard let index = CommandLine.arguments.firstIndex(of: "--debug-video-thumbnail"),
+              CommandLine.arguments.indices.contains(index + 1)
+        else { NSApp.terminate(nil); return }
+        let folder = URL(fileURLWithPath: CommandLine.arguments[index + 1])
+
+        Task { @MainActor in
+            defer { NSApp.terminate(nil) }
+            do {
+                let url = try await debugVideoURL()
+                let store = try await VideoEditorStore.load(url: url)
+                addTimedSampleAnnotations(to: store)
+                store.tearDown()
+                try await Task.sleep(nanoseconds: 1_500_000_000)
+
+                let edited = url.deletingPathExtension().appendingPathExtension("edited.jpg")
+                guard FileManager.default.fileExists(atPath: edited.path) else {
+                    log("✗ 注釈込みのサムネイルができていません")
+                    return
+                }
+                let copy = folder.appendingPathComponent("thumbnail.jpg")
+                try? FileManager.default.removeItem(at: copy)
+                try FileManager.default.copyItem(at: edited, to: copy)
+                log("✓ 注釈込みのサムネイル: \(copy.path)（注釈がいちばん多い時刻 = 2 秒あたりのコマ。矢印・四角・モザイクが乗るはず）")
+            } catch {
+                log("失敗: \(error)")
+            }
+        }
+    }
+
+    /// `--debug-open-video <動画> <作業フォルダ>` で、外から開いた動画が履歴へ取り込まれるかを確かめる。
+    /// 本物の履歴に触れないよう、動画の保存先を作業フォルダに向けて試し、最後に元へ戻す。
+    @MainActor
+    static func checkOpenVideoAndQuit() {
+        guard let index = CommandLine.arguments.firstIndex(of: "--debug-open-video"),
+              CommandLine.arguments.indices.contains(index + 2)
+        else { NSApp.terminate(nil); return }
+        let source = URL(fileURLWithPath: CommandLine.arguments[index + 1])
+        let work = URL(fileURLWithPath: CommandLine.arguments[index + 2])
+        try? FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+
+        let store = HistoryStore.shared
+        let original = Preferences.saveDirectory(for: .video)
+        let originalRetention = UserDefaults.standard.object(forKey: "videoHistoryRetentionDays")
+        Preferences.setSaveDirectory(work, for: .video)
+
+        Task { @MainActor in
+            defer {
+                Preferences.setSaveDirectory(original, for: .video)
+                if originalRetention == nil { UserDefaults.standard.removeObject(forKey: "videoHistoryRetentionDays") }
+                store.reload()
+                try? FileManager.default.removeItem(at: work)
+                log("保存先の設定を元に戻しました")
+                NSApp.terminate(nil)
+            }
+            do {
+                let imported = try await store.importVideo(at: source)
+                let files = (try? FileManager.default.contentsOfDirectory(atPath: work.path))?.filter { !$0.hasPrefix(".") }.sorted() ?? []
+                log("取り込み先: \(imported.lastPathComponent)")
+                log("作業フォルダのファイル: \(files.joined(separator: ", "))")
+                log("元のファイルは残っている: \(FileManager.default.fileExists(atPath: source.path))")
+                if let item = store.items.first(where: { $0.url.lastPathComponent == imported.lastPathComponent }) {
+                    log("✓ 履歴に出ている: 種類=\(item.kind == .video ? "動画" : "画像")・\(item.sizeDescription)・長さ \(item.duration.map { String(format: "%.1f 秒", $0) } ?? "?")")
+                } else {
+                    log("✗ 履歴に出ていません")
+                }
+                let editor = try await VideoEditorStore.load(url: imported)
+                log("✓ 動画エディタで読み込めた: \(Int(editor.pixelSize.width)) × \(Int(editor.pixelSize.height))・\(String(format: "%.1f", editor.duration)) 秒")
+                editor.tearDown()
+            } catch {
+                log("失敗: \(error)")
+            }
+        }
+    }
+}
+#endif
+
+#if DEBUG
+// MARK: - 収録の予約
+
+extension DebugSupport {
+
+    /// `--debug-scheduled-record <作業フォルダ>` で、テスト用のウィンドウに対して収録の予約を実際に動かす。
+    /// ① 3 秒後に開始・4 秒後に自動終了 ② 予約の取り消し ③ 今すぐ開始、を順に確かめる。
+    /// 本物の履歴・マイク・クリップボードには影響を残さないよう、保存先を作業フォルダにし、
+    /// 音声とマイクを切り、クリップボードは元に戻す。
+    @MainActor
+    static func checkScheduledRecordingAndQuit() {
+        guard let folder = stringArgument(named: "--debug-scheduled-record") else { NSApp.terminate(nil); return }
+        let work = URL(fileURLWithPath: folder)
+        try? FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+
+        let originalDirectory = Preferences.saveDirectory(for: .video)
+        let originalSystemAudio = Preferences.recordsSystemAudio
+        let originalMicrophone = Preferences.recordsMicrophone
+        let originalCountdown = Preferences.recordingCountdown
+        let originalAfterCapture = Preferences.afterCaptureAction
+        let savedPasteboard = NSPasteboard.general.pasteboardItems?.map { item -> [NSPasteboard.PasteboardType: Data] in
+            Dictionary(uniqueKeysWithValues: item.types.compactMap { type in item.data(forType: type).map { (type, $0) } })
+        } ?? []
+
+        Preferences.setSaveDirectory(work, for: .video)
+        Preferences.recordsSystemAudio = false
+        Preferences.recordsMicrophone = false
+        Preferences.recordingCountdown = false
+        Preferences.afterCaptureAction = .copyOnly
+
+        let window = NSWindow(
+            contentRect: CGRect(x: 300, y: 300, width: 640, height: 400),
+            styleMask: [.titled, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "予約テスト"
+        window.isReleasedWhenClosed = false
+        window.contentView = NSHostingView(rootView: ResizeTestPattern())
+        window.orderFrontRegardless()
+
+        let coordinator = RecordingCoordinator.shared
+        let windowID = CGWindowID(window.windowNumber)
+
+        func describe() -> String {
+            var text = "\(coordinator.state)"
+            if coordinator.state == .scheduled { text += "（開始まで \(Int(coordinator.remainingUntilStart.rounded())) 秒）" }
+            if coordinator.state == .recording { text += "（経過 \(Int(coordinator.elapsed)) 秒）" }
+            return text
+        }
+
+        /// 状態が idle に戻るまで見張り、変わるたびに記録する。
+        func watch(limit: Double) async {
+            var last = ""
+            let started = Date()
+            while Date().timeIntervalSince(started) < limit {
+                let now = describe()
+                if now != last {
+                    log(String(format: "  %5.1f 秒: %@", Date().timeIntervalSince(started), now))
+                    last = now
+                }
+                if coordinator.state == .idle, Date().timeIntervalSince(started) > 0.5 { return }
+                try? await Task.sleep(nanoseconds: 250_000_000)
+            }
+        }
+
+        Task { @MainActor in
+            defer {
+                Preferences.setSaveDirectory(originalDirectory, for: .video)
+                Preferences.recordsSystemAudio = originalSystemAudio
+                Preferences.recordsMicrophone = originalMicrophone
+                Preferences.recordingCountdown = originalCountdown
+                Preferences.afterCaptureAction = originalAfterCapture
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.writeObjects(savedPasteboard.map { types in
+                    let item = NSPasteboardItem()
+                    for (type, data) in types { item.setData(data, forType: type) }
+                    return item
+                })
+                HistoryStore.shared.reload()
+                try? FileManager.default.removeItem(at: work)
+                log("設定・クリップボードを元に戻しました")
+                NSApp.terminate(nil)
+            }
+
+            // ① 3 秒後に開始して、その 4 秒後に自動で終了する。
+            log("① 3 秒後に開始・4 秒後に自動終了")
+            let start = Date().addingTimeInterval(3)
+            let schedule = RecordingSchedule(start: start, stop: start.addingTimeInterval(4))
+            Task { @MainActor in
+                try? await coordinator.proceed(windowID: windowID, appName: "予約テスト", frame: window.frame, schedule: schedule)
+            }
+            await watch(limit: 15)
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            HistoryStore.shared.reload()
+            let videos = HistoryStore.shared.items.filter { $0.kind == .video }
+            if let video = videos.first {
+                log("  → 保存された動画: \(video.url.lastPathComponent)・\(String(format: "%.1f", video.duration ?? 0)) 秒（期待 4 秒前後）")
+            } else {
+                log("  → ✗ 動画が保存されていません")
+            }
+
+            // ② 予約して、すぐ取り消す。
+            log("② 予約してから取り消す")
+            Task { @MainActor in
+                try? await coordinator.proceed(
+                    windowID: windowID, appName: "予約テスト", frame: window.frame,
+                    schedule: RecordingSchedule(start: Date().addingTimeInterval(30), stop: nil)
+                )
+            }
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            log("  取り消す前: \(describe())")
+            coordinator.cancelSchedule()
+            await watch(limit: 3)
+
+            // ③ 予約してから「今すぐ開始」し、2 秒後に手で止める。
+            log("③ 予約してから今すぐ開始")
+            Task { @MainActor in
+                try? await coordinator.proceed(
+                    windowID: windowID, appName: "予約テスト", frame: window.frame,
+                    schedule: RecordingSchedule(start: Date().addingTimeInterval(60), stop: nil)
+                )
+            }
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            coordinator.startScheduledNow()
+            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            log("  2.5 秒後: \(describe())")
+            coordinator.stop()
+            await watch(limit: 5)
+            HistoryStore.shared.reload()
+            log("  → 作業フォルダの動画: \(HistoryStore.shared.items.filter { $0.kind == .video }.count) 本（期待 2 本）")
+            window.close()
         }
     }
 }
