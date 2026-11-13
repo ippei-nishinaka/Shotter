@@ -28,7 +28,7 @@ struct EditorView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            EditorToolbarView(store: store, onCopy: onCopy, onSave: onSave)
+            EditorToolbarView(store: store, onCopy: onCopy, onSave: onSave, fileURL: store.historyURL)
             Divider()
 
             // 出す内容が無くても行ごと消さない。消えると作業領域の高さが変わってしまう。
@@ -49,11 +49,20 @@ struct EditorView: View {
 }
 
 /// ツール選択・色・線幅・アンドゥ・コピーを並べたツールバー。
+///
+/// 動画エディタでも同じものを使う。そのときは静止画向けの項目（影・角丸・文字認識・コピー・保存）を外し、
+/// 右端に `trailingActions`（書き出しなど）を置く。
 struct EditorToolbarView: View {
 
     @ObservedObject var store: AnnotationStore
-    let onCopy: () -> Void
-    let onSave: () -> Void
+    var onCopy: () -> Void = {}
+    var onSave: () -> Void = {}
+    /// 動画エディタで、コピー・保存の代わりに置くボタン。nil なら静止画のツールバー。
+    var trailingActions: AnyView?
+    /// 編集している元のファイル（注釈を焼き込む前のもの）。メニューから開ける。
+    var fileURL: URL?
+
+    private var isVideo: Bool { trailingActions != nil }
 
     /// プリセットの色。右端のカラーピッカーで任意の色も選べる。
     private static let presetColors: [NSColor] = [
@@ -73,7 +82,15 @@ struct EditorToolbarView: View {
 
             historyGroup
             Divider().frame(height: 20)
-            actionGroup
+            if let trailingActions {
+                HStack(spacing: 8) {
+                    trailingActions
+                    menuButton
+                }
+                .fixedSize()
+            } else {
+                actionGroup
+            }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
@@ -94,8 +111,10 @@ struct EditorToolbarView: View {
                     action: { store.tool = tool }
                 )
             }
-            shadowToggle
-            cornerToggle
+            if !isVideo {
+                shadowToggle
+                cornerToggle
+            }
         }
     }
 
@@ -291,7 +310,9 @@ struct EditorToolbarView: View {
             IconButton(
                 systemName: "trash",
                 title: "すべての注釈を削除",
-                detail: "この画像に描いた注釈をまとめて消します。⌃Z で元に戻せます。",
+                detail: isVideo
+                    ? "この動画に描いた注釈をまとめて消します。⌃Z で元に戻せます。"
+                    : "この画像に描いた注釈をまとめて消します。⌃Z で元に戻せます。",
                 isEnabled: !store.isEmpty
             ) {
                 store.removeAll()
@@ -345,6 +366,12 @@ struct EditorToolbarView: View {
     /// 履歴・設定・About をまとめたメニュー。
     private var menuButton: some View {
         Menu {
+            if let fileURL {
+                let noun = isVideo ? "動画" : "画像"
+                Button("元の\(noun)を開く") { Self.open(fileURL, revealing: false) }
+                Button("元の\(noun)を Finder で表示") { Self.open(fileURL, revealing: true) }
+                Divider()
+            }
             Button("履歴…") { HistoryWindowController.show() }
             Button("設定…") { SettingsWindowController.show() }
             Divider()
@@ -357,9 +384,26 @@ struct EditorToolbarView: View {
         .fixedSize()
         .instantTooltip(
             title: "メニュー",
-            detail: "履歴・設定・アプリ情報を開きます。",
+            detail: fileURL == nil
+                ? "履歴・設定・アプリ情報を開きます。"
+                : "元の\(isVideo ? "動画" : "画像")を開く・Finder で表示するほか、履歴・設定・アプリ情報を開きます。",
             forceVisible: isTooltipForced("メニュー")
         )
+    }
+
+    /// 元のファイルを既定のアプリ（プレビュー / QuickTime Player）で開くか、Finder で場所を見せる。
+    /// 保持期間を過ぎて消えていることもあるので、先に確かめる。
+    private static func open(_ url: URL, revealing: Bool) {
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            HUDPresenter.show("元のファイルが見つかりません（履歴から削除された可能性があります）",
+                              symbolName: "exclamationmark.triangle.fill", duration: 2.4)
+            return
+        }
+        if revealing {
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+        } else {
+            NSWorkspace.shared.open(url)
+        }
     }
 
 }

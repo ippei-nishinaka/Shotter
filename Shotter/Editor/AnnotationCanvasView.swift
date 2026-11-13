@@ -17,8 +17,23 @@ final class AnnotationCanvasView: NSView {
         }
     }
 
+    /// false にすると下地の画像を描かず、画像の範囲を透明のままにする。
+    /// 動画エディタで、下に敷いた動画プレイヤーの上に注釈だけを重ねるのに使う。
+    var drawsSourceImage = true
+
+    /// 画像を表示する矩形が変わったとき。下に敷いたプレイヤーの位置合わせに使う。
+    var onImageRectChange: ((CGRect) -> Void)?
+
+    /// キャンバスをクリックしたとき（描き始める前）。動画エディタで再生を止めるのに使う。
+    var onMouseDown: (() -> Void)?
+
     /// 画像を表示している矩形（ビュー座標）。
-    private(set) var imageRect: CGRect = .zero
+    private(set) var imageRect: CGRect = .zero {
+        didSet {
+            guard imageRect != oldValue else { return }
+            onImageRectChange?(imageRect)
+        }
+    }
 
     /// ビューのポイント数 ÷ 画像ピクセル数。
     private(set) var displayScale: CGFloat = 1
@@ -108,6 +123,17 @@ final class AnnotationCanvasView: NSView {
         guard let context = NSGraphicsContext.current?.cgContext else { return }
 
         NSColor.underPageBackgroundColor.setFill()
+        guard drawsSourceImage else {
+            // 画像の範囲だけ抜いて塗り、下のプレイヤーが見えるようにする。
+            let path = NSBezierPath(rect: bounds)
+            path.append(NSBezierPath(rect: imageRect))
+            path.windingRule = .evenOdd
+            path.fill()
+            guard let store, !imageRect.isEmpty else { return }
+            drawAnnotationLayer(store, in: context)
+            drawSelectionOverlay(store)
+            return
+        }
         bounds.fill()
 
         guard let store, !imageRect.isEmpty else { return }
@@ -122,7 +148,9 @@ final class AnnotationCanvasView: NSView {
     /// 選択中の注釈の外枠とリサイズつまみ。
     /// 画像の拡大率に関係なく一定の大きさで出したいので、ビュー座標のまま描く。
     private func drawSelectionOverlay(_ store: AnnotationStore) {
-        guard store.tool == .select, let selected = store.selectedAnnotation else { return }
+        guard store.tool == .select, let selected = store.selectedAnnotation,
+              !store.hiddenAnnotationIDs.contains(selected.id)
+        else { return }
 
         let box = viewRect(from: selected.boundingBox).insetBy(dx: -2, dy: -2)
         let outline = NSBezierPath(rect: box)
@@ -179,12 +207,17 @@ final class AnnotationCanvasView: NSView {
         context.clip(to: imageRect)
         context.translateBy(x: imageRect.minX, y: imageRect.minY)
         context.scaleBy(x: displayScale, y: displayScale)
-        var annotations = store.annotations
-        if let draft { annotations.append(draft) }
+        var annotations = store.visibleAnnotations
+        var numbering = store.annotations
+        if let draft {
+            annotations.append(draft)
+            numbering.append(draft)
+        }
         AnnotationRenderer.drawAnnotations(
             annotations,
             in: context,
-            environment: store.renderEnvironment
+            environment: store.renderEnvironment,
+            numberingFrom: numbering
         )
         context.restoreGState()
     }
@@ -193,6 +226,7 @@ final class AnnotationCanvasView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         guard let store else { return }
+        onMouseDown?()
 
         // 編集中にキャンバスをクリックしたら、まず入力を確定させる。
         if textEditor != nil {
@@ -445,7 +479,7 @@ extension AnnotationCanvasView {
         }
 
         // 2. 手前にあるものから順にヒットテストする。
-        if let hit = store.annotations.reversed().first(where: { $0.hitTest(imagePoint) }) {
+        if let hit = store.visibleAnnotations.reversed().first(where: { $0.hitTest(imagePoint) }) {
             // テキストはダブルクリックで再編集。
             if event.clickCount == 2, let text = hit as? TextAnnotation {
                 store.remove(text)

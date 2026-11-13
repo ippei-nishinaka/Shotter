@@ -32,10 +32,12 @@ final class AreaSelectionController: NSObject, SelectionOverlayViewDelegate {
 
     var isActive: Bool { !windows.isEmpty }
 
+    /// - Parameter actionVerb: 案内文に出す動詞（「撮影」「収録」）。
     /// - Parameter completion: 選択結果。キャンセル時は nil。
     func begin(
         snapshots: [DisplaySnapshot],
         mode: CaptureMode = .area,
+        actionVerb: String = "撮影",
         completion: @escaping (SelectionResult?) -> Void
     ) {
         guard !isActive else { return }
@@ -48,6 +50,7 @@ final class AreaSelectionController: NSObject, SelectionOverlayViewDelegate {
             let window = SelectionOverlayWindow(snapshot: snapshot)
             window.overlayView.delegate = self
             window.overlayView.mode = mode
+            window.overlayView.actionVerb = actionVerb
             windows.append(window)
         }
 

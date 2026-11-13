@@ -11,6 +11,10 @@ enum HUDPresenter {
         let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main
         guard let screen else { return }
 
+        // 前の HUD が残っていると同じ場所に重なって読めないので、新しいものに置き換える。
+        for previous in panels { previous.orderOut(nil) }
+        panels.removeAll()
+
         let content = makeContentView(message: message, symbolName: symbolName)
         let size = content.fittingSize
 

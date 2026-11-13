@@ -49,6 +49,16 @@ enum WindowLister {
         return result
     }
 
+    /// 指定したウィンドウの今の位置と大きさ（AppKit グローバル座標）。閉じられていれば nil。
+    static func frame(of windowID: CGWindowID) -> CGRect? {
+        guard let entries = CGWindowListCopyWindowInfo([.optionIncludingWindow], windowID) as? [[String: Any]],
+              let entry = entries.first(where: { ($0[kCGWindowNumber as String] as? NSNumber)?.uint32Value == windowID }),
+              let boundsDict = entry[kCGWindowBounds as String] as? [String: Any],
+              let cgBounds = CGRect(dictionaryRepresentation: boundsDict as CFDictionary)
+        else { return nil }
+        return appKitFrame(fromCG: cgBounds)
+    }
+
     /// CoreGraphics のグローバル座標（左上原点）→ AppKit のグローバル座標（左下原点）。
     private static func appKitFrame(fromCG rect: CGRect) -> CGRect {
         guard let primary = NSScreen.screens.first else { return rect }

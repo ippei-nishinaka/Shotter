@@ -137,3 +137,22 @@ enum AnnotationTool: String, CaseIterable, Identifiable {
         }
     }
 }
+
+extension AnnotationTool {
+    /// その注釈を描いたツール。
+    init?(drawing annotation: Annotation) {
+        switch annotation {
+        case is ArrowAnnotation:                    self = .arrow
+        case let rectangle as RectangleAnnotation:  self = rectangle.isFilled ? .filledRectangle : .rectangle
+        case is EllipseAnnotation:                  self = .ellipse
+        case is LineAnnotation:                     self = .line
+        case is FreehandAnnotation:                 self = .freehand
+        case is HighlightAnnotation:                self = .highlight
+        case is TextAnnotation:                     self = .text
+        case is PixelateAnnotation:                 self = .pixelate
+        case is SpotlightAnnotation:                self = .spotlight
+        case is CounterAnnotation:                  self = .counter
+        default:                                    return nil
+        }
+    }
+}

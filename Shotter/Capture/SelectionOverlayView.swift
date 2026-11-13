@@ -37,6 +37,9 @@ final class SelectionOverlayView: NSView {
         didSet { needsDisplay = true }
     }
 
+    /// 案内文に出す動詞。動画収録のウィンドウ選択では「収録」にする。
+    var actionVerb = "撮影"
+
     /// ウィンドウモードで表示するアプリ名。
     var hoverLabel: String? {
         didSet {
@@ -129,6 +132,12 @@ final class SelectionOverlayView: NSView {
         delegate?.overlayView(self, didFinishSelection: rect)
     }
 
+    /// 右クリックでもキャンセルできるようにする（Esc に手を伸ばさなくて済む）。
+    override func rightMouseDown(with event: NSEvent) {
+        anchorPoint = nil
+        delegate?.overlayViewDidCancel(self)
+    }
+
     // MARK: - Keyboard
 
     override func keyDown(with event: NSEvent) {
@@ -216,8 +225,8 @@ final class SelectionOverlayView: NSView {
     private func drawHint() {
         guard hoverPoint != nil else { return }
         let text = mode == .area
-            ? "ドラッグして範囲を選択　·　Space でカーソル下のウィンドウを撮影　·　Esc でキャンセル"
-            : "ウィンドウをクリック、または Space で撮影　·　Esc でキャンセル"
+            ? "ドラッグして範囲を選択　·　Space でカーソル下のウィンドウを\(actionVerb)　·　Esc / 右クリックでキャンセル"
+            : "ウィンドウをクリック、または Space で\(actionVerb)　·　Esc / 右クリックでキャンセル"
         let size = badgeSize(for: text)
         let origin = CGPoint(
             x: bounds.midX - size.width / 2,

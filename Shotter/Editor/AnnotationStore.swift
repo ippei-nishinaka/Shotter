@@ -6,7 +6,8 @@ import Combine
 final class AnnotationStore: ObservableObject {
 
     /// 撮影された元画像（ピクセル）。
-    let sourceImage: CGImage
+    /// 動画エディタでは、いま表示しているコマに差し替えていく（モザイクの下地になる）。
+    private(set) var sourceImage: CGImage
 
     /// 画像のピクセルサイズ。注釈の座標系はこのサイズを基準にする。
     let imageSize: CGSize
@@ -111,8 +112,34 @@ final class AnnotationStore: ObservableObject {
     private var shapeCornerRadius: CGFloat { 8 * pixelScale }
 
     @Published private(set) var annotations: [Annotation] = []
-    @Published private(set) var undoStack: [[Annotation]] = []
-    @Published private(set) var redoStack: [[Annotation]] = []
+
+    /// 今は表示しない注釈（動画エディタで、再生位置が表示時間の外にあるもの）。
+    /// 描画にもクリックの当たり判定にも出てこない。静止画では常に空。
+    @Published var hiddenAnnotationIDs: Set<UUID> = [] {
+        didSet {
+            guard hiddenAnnotationIDs != oldValue else { return }
+            revision &+= 1
+        }
+    }
+
+    /// 今表示している注釈。並び順（重なり順）は annotations と同じ。
+    var visibleAnnotations: [Annotation] {
+        guard !hiddenAnnotationIDs.isEmpty else { return annotations }
+        return annotations.filter { !hiddenAnnotationIDs.contains($0.id) }
+    }
+    /// アンドゥ 1 手分。注釈のほか、エディタ固有の状態（動画の表示時間など）も一緒に積む。
+    struct UndoSnapshot {
+        var annotations: [Annotation]
+        var extra: Any?
+    }
+
+    @Published private(set) var undoStack: [UndoSnapshot] = []
+    @Published private(set) var redoStack: [UndoSnapshot] = []
+
+    /// 注釈と一緒にアンドゥしたい状態を取り出す・戻す。動画エディタが表示時間とトリムを預ける。
+    /// こうしておくと、注釈の操作と表示時間の変更が 1 本の履歴に並び、⌘Z で新しい順に戻せる。
+    var captureExtraUndoState: (() -> Any)?
+    var restoreExtraUndoState: ((Any) -> Void)?
 
     /// 画像の周りに影を付けるか。注釈の座標系には影響しない（描画時だけ余白を足す）。
     ///
@@ -163,6 +190,14 @@ final class AnnotationStore: ObservableObject {
 
     var selectedAnnotation: Annotation? {
         annotations.first { $0.id == selectedID }
+    }
+
+    /// 下地の画像を差し替える（動画エディタでコマが変わったとき）。大きさは同じであること。
+    func replaceSourceImage(_ image: CGImage) {
+        guard image.width == Int(imageSize.width), image.height == Int(imageSize.height) else { return }
+        sourceImage = image
+        roundedImageCache = nil
+        revision &+= 1
     }
 
     /// 色やオプションの変更を反映する相手。
@@ -227,7 +262,8 @@ final class AnnotationStore: ObservableObject {
     }
 
     /// この編集内容を書き戻す先の履歴ファイル。撮影直後や履歴から開いた場合に入る。
-    private let historyURL: URL?
+    /// 「元の画像を開く」の対象にもなる。
+    let historyURL: URL?
     private var autosaveWorkItem: DispatchWorkItem?
 
     init(image: CGImage, pointSize: CGSize, historyURL: URL? = nil, document: AnnotationDocument? = nil) {
@@ -393,16 +429,23 @@ final class AnnotationStore: ObservableObject {
 
     func undo() {
         guard let previous = undoStack.popLast() else { return }
-        redoStack.append(annotations.map { $0.copy() })
-        annotations = previous
-        dropSelectionIfMissing()
-        didChange()
+        redoStack.append(currentSnapshot())
+        restore(previous)
     }
 
     func redo() {
         guard let next = redoStack.popLast() else { return }
-        undoStack.append(annotations.map { $0.copy() })
-        annotations = next
+        undoStack.append(currentSnapshot())
+        restore(next)
+    }
+
+    private func currentSnapshot() -> UndoSnapshot {
+        UndoSnapshot(annotations: annotations.map { $0.copy() }, extra: captureExtraUndoState?())
+    }
+
+    private func restore(_ snapshot: UndoSnapshot) {
+        annotations = snapshot.annotations
+        if let extra = snapshot.extra { restoreExtraUndoState?(extra) }
         dropSelectionIfMissing()
         didChange()
     }
@@ -436,7 +479,7 @@ final class AnnotationStore: ObservableObject {
     }
 
     private func pushUndoSnapshot() {
-        undoStack.append(annotations.map { $0.copy() })
+        undoStack.append(currentSnapshot())
         redoStack.removeAll()
     }
 }

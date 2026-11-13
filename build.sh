@@ -70,6 +70,46 @@ fi
 
 SDK_PATH="$(xcrun --show-sdk-path)"
 
+# Command Line Tools によっては、既定の（いちばん新しい）SDK だと SwiftUI の @State が
+# マクロ扱いになり、そのマクロの実装が同梱されていないためビルドできないことがある。
+# その場合は、同じ場所にある他の SDK を新しい順に試し、通るものを使う。
+# SDKROOT を指定していればそれをそのまま使う。
+sdk_can_build_swiftui() {
+    local probe_dir
+    probe_dir="$(mktemp -d)"
+    printf 'import SwiftUI\nstruct Probe: View { @State var value = 0; var body: some View { Text("") } }\n' \
+        > "$probe_dir/probe.swift"
+    xcrun swiftc -typecheck -sdk "$1" -target "$(uname -m)-apple-macos${DEPLOYMENT_TARGET}" \
+        "$probe_dir/probe.swift" >/dev/null 2>&1
+    local status=$?
+    rm -rf "$probe_dir"
+    return $status
+}
+
+if [ -z "${SDKROOT:-}" ] && ! sdk_can_build_swiftui "$SDK_PATH"; then
+    FALLBACK_SDK=""
+    while IFS= read -r candidate; do
+        if sdk_can_build_swiftui "$candidate"; then
+            FALLBACK_SDK="$candidate"
+            break
+        fi
+    done < <(
+        # シンボリックリンク（MacOSX.sdk など）は除き、バージョンの新しい順に並べる。
+        for sdk in "$(dirname "$SDK_PATH")"/MacOSX[0-9]*.sdk; do
+            [ -L "$sdk" ] && continue
+            version="$(basename "$sdk" .sdk)"
+            echo "${version#MacOSX} $sdk"
+        done | sort -rn | cut -d' ' -f2-
+    )
+
+    if [ -z "$FALLBACK_SDK" ]; then
+        echo "❌ SwiftUI をビルドできる SDK が見つかりません（$SDK_PATH 以外も試しました）" >&2
+        exit 1
+    fi
+    echo "⚠️  既定の SDK ($(basename "$SDK_PATH")) では SwiftUI をビルドできないため、$(basename "$FALLBACK_SDK") を使います"
+    SDK_PATH="$FALLBACK_SDK"
+fi
+
 # --- ソース収集 -------------------------------------------------------------
 SOURCES=()
 while IFS= read -r file; do
@@ -109,6 +149,8 @@ for arch in "${ARCHS[@]}"; do
         -framework ScreenCaptureKit \
         -framework CoreImage \
         -framework CoreMedia \
+        -framework AVFoundation \
+        -framework IOKit \
         -framework Vision
     SLICES+=("$OBJ_DIR/$APP_NAME-$arch")
 done

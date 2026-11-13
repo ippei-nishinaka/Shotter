@@ -47,7 +47,12 @@ enum AnnotationRenderer {
         context.saveGState()
         context.translateBy(x: padding, y: padding)
         flipToTopLeftOrigin(context, height: store.imageSize.height)
-        drawAnnotations(store.annotations, in: context, environment: store.renderEnvironment)
+        drawAnnotations(
+            store.visibleAnnotations,
+            in: context,
+            environment: store.renderEnvironment,
+            numberingFrom: store.annotations
+        )
         context.restoreGState()
 
         return context.makeImage()
@@ -69,13 +74,19 @@ enum AnnotationRenderer {
         context.scaleBy(x: 1, y: -1)
     }
 
+    /// - Parameter numberingFrom: 連番を振るときに数える注釈。一部だけ描くとき（動画の表示時間など）も
+    ///   番号がずれないよう、全体を渡す。nil なら描くものだけで数える。
     nonisolated static func drawAnnotations(
         _ annotations: [Annotation],
         in context: CGContext,
-        environment: AnnotationRenderEnvironment
+        environment: AnnotationRenderEnvironment,
+        numberingFrom numberingSource: [Annotation]? = nil
     ) {
         var environment = environment
-        environment.counterNumbers = counterNumbers(in: annotations, startingAt: environment.counterStartNumber)
+        environment.counterNumbers = counterNumbers(
+            in: numberingSource ?? annotations,
+            startingAt: environment.counterStartNumber
+        )
 
         let spotlights = annotations.compactMap { $0 as? SpotlightAnnotation }
         var didDrawSpotlights = false

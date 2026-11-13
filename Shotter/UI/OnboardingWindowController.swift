@@ -118,8 +118,8 @@ struct OnboardingView: View {
                     .font(.headline)
                 Label("メニューバーの 📷 →「範囲を選択してキャプチャ」", systemImage: "1.circle")
                 Label(
-                    "ホットキー \(Preferences.hotKey.displayString) で範囲、"
-                        + "\(Preferences.windowHotKey.displayString) でウィンドウ（設定で変更可）",
+                    "ホットキー \(Preferences.hotKey?.displayString ?? "未設定") で範囲、"
+                        + "\(Preferences.windowHotKey?.displayString ?? "未設定") でウィンドウ（設定で変更可）",
                     systemImage: "2.circle"
                 )
                 Label("ドラッグで範囲選択、Esc でキャンセル", systemImage: "3.circle")
