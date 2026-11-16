@@ -22,7 +22,7 @@ extension DebugSupport {
     static func measureEncodeBitrateAndQuit() {
         let seconds = Double(stringArgument(named: "--debug-encode-bitrate") ?? "") ?? 60
         let quality = stringArgument(named: "--debug-encode-bitrate", offset: 2)
-            .flatMap(RecordingQuality.init(rawValue:)) ?? .longDuration
+            .flatMap(RecordingQuality.init(rawValue:)) ?? .low
 
         Task.detached {
             do {
@@ -36,7 +36,7 @@ extension DebugSupport {
                 let audio = Double(quality.systemAudioBitRate + quality.microphoneBitRate)
                 let perEightHours = (bitRate + audio) * 8 * 3600 / 8
 
-                log("画質: \(quality.title)（\(quality.framesPerSecond)fps・目標 \(quality.videoBitRate / 1000) kbps）")
+                log("画質: \(quality.title)（\(quality.framesPerSecond)fps・目標 \(quality.videoBitRate(forPixelSize: result.pixelSize) / 1000) kbps）")
                 log("コーデック: \(RecordingWriter.supportsHEVC ? "HEVC" : "H.264")")
                 log("映像: \(Int(result.pixelSize.width)) × \(Int(result.pixelSize.height))・\(result.videoFrameCount) フレーム・\(String(format: "%.1f", result.duration)) 秒")
                 log("ファイル: \(bytes) バイト → 映像の実ビットレート \(Int(bitRate / 1000)) kbps")

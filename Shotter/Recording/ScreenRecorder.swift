@@ -69,7 +69,6 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
         self.window = window
         self.options = options
         pixelSize = options.quality.outputPixelSize(forPointSize: window.frame.size, scale: scale)
-        fitter = FrameFitter(canvasSize: pixelSize)
 
         writer = try RecordingWriter(
             url: outputURL,
@@ -80,6 +79,7 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
                 recordsMicrophone: options.recordsMicrophone
             )
         )
+        fitter = FrameFitter(canvasSize: pixelSize, preservesAlpha: writer.preservesAlpha)
         super.init()
     }
 
@@ -91,9 +91,16 @@ final class ScreenRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
         configuration.height = Int(pixelSize.height)
         configuration.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(options.quality.framesPerSecond))
         configuration.showsCursor = options.showsCursor
-        // エンコーダがそのまま受け取れる YUV で受ける（BGRA よりメモリも帯域も少ない）。
-        configuration.pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
-        configuration.colorMatrix = CGDisplayStream.yCbCrMatrix_ITU_R_709_2
+        if writer.preservesAlpha {
+            // ウィンドウの角丸の外側を透明のまま受け取るため、アルファを持てる BGRA で受ける。
+            // YUV で受けると、透明な部分は黒く塗られてしまう。
+            configuration.pixelFormat = kCVPixelFormatType_32BGRA
+            configuration.backgroundColor = .clear
+        } else {
+            // エンコーダがそのまま受け取れる YUV で受ける（BGRA よりメモリも帯域も少ない）。
+            configuration.pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+            configuration.colorMatrix = CGDisplayStream.yCbCrMatrix_ITU_R_709_2
+        }
         configuration.colorSpaceName = CGColorSpace.sRGB
         configuration.queueDepth = 6
         if #available(macOS 14.0, *) {

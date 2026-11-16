@@ -177,7 +177,9 @@ final class SettingsModel: ObservableObject {
     let microphones = MicrophoneCapture.availableDevices()
 
     var recordingSizeEstimate: String {
+        // ウィンドウの大きさで変わるので、ここでは大きなウィンドウのときの上限を出す。
         recordingQuality.sizeEstimateDescription(
+            pixelSize: nil,
             systemAudio: recordingSound != .none,
             microphone: microphone != MicrophoneChoice.off
         )
@@ -427,7 +429,7 @@ struct SettingsView: View {
                             Text(quality.title).tag(quality)
                         }
                     }
-                    Text("\(model.recordingQuality.detail)\n\(model.recordingSizeEstimate)")
+                    Text("\(model.recordingQuality.detail)\n\(model.recordingSizeEstimate)（小さなウィンドウほど少なくなります）")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)

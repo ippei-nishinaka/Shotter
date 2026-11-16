@@ -71,6 +71,37 @@ final class HotKeyManager {
         registeredCombos.removeValue(forKey: action)
     }
 
+    // MARK: - 一時的なキー
+
+    /// 一時的に登録したキーの ID。HotKeyAction と重ならない範囲から振る。
+    private var nextTemporaryID: UInt32 = 1000
+
+    /// 範囲選択の Esc のように、ある操作の間だけ押さえたいキーを登録する。
+    /// キーウィンドウやアプリの前面化に左右されずに届く。
+    /// - Returns: 解除に使う ID。登録できなければ nil。
+    func registerTemporary(keyCode: UInt32, modifiers: UInt32 = 0, handler: @escaping () -> Void) -> UInt32? {
+        installEventHandlerIfNeeded()
+
+        let id = nextTemporaryID
+        nextTemporaryID += 1
+
+        var reference: EventHotKeyRef?
+        let identifier = EventHotKeyID(signature: Self.signature, id: id)
+        let status = RegisterEventHotKey(keyCode, modifiers, identifier, GetApplicationEventTarget(), 0, &reference)
+        guard status == noErr, let reference else { return nil }
+
+        hotKeyRefs[id] = reference
+        handlers[id] = handler
+        return id
+    }
+
+    func unregisterTemporary(_ id: UInt32) {
+        if let reference = hotKeyRefs.removeValue(forKey: id) {
+            UnregisterEventHotKey(reference)
+        }
+        handlers.removeValue(forKey: id)
+    }
+
     func unregisterAll() {
         for action in HotKeyAction.allCases { unregister(action) }
     }
