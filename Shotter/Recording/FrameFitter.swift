@@ -11,11 +11,14 @@ import CoreVideo
 final class FrameFitter {
 
     private let canvasSize: CGSize
+    /// 透過を残すか。true なら BGRA で出力し、ウィンドウの外側（角丸の外・余白）は透明にする。
+    private let preservesAlpha: Bool
     private let context = CIContext(options: [.cacheIntermediates: false])
     private var pool: CVPixelBufferPool?
 
-    init(canvasSize: CGSize) {
+    init(canvasSize: CGSize, preservesAlpha: Bool) {
         self.canvasSize = canvasSize
+        self.preservesAlpha = preservesAlpha
     }
 
     /// - Parameter contentRect: バッファの中でウィンドウが描かれている範囲（ピクセル・左上原点）。
@@ -51,7 +54,7 @@ final class FrameFitter {
             .transformed(by: CGAffineTransform(translationX: offset.x, y: offset.y))
 
         let canvas = CGRect(origin: .zero, size: canvasSize)
-        let image = fitted.composited(over: CIImage(color: .black).cropped(to: canvas)).cropped(to: canvas)
+        let image = fitted.composited(over: CIImage(color: preservesAlpha ? .clear : .black).cropped(to: canvas)).cropped(to: canvas)
 
         CVBufferPropagateAttachments(pixelBuffer, output)
         context.render(image, to: output)
@@ -71,8 +74,10 @@ final class FrameFitter {
     private func makeOutputBuffer() -> CVPixelBuffer? {
         if pool == nil {
             let attributes: [CFString: Any] = [
-                // 画面収録と同じ YUV にそろえて、エンコーダへ渡す形式を混在させない。
-                kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+                // 画面収録と同じ形式にそろえて、エンコーダへ渡す形式を混在させない。
+                kCVPixelBufferPixelFormatTypeKey: preservesAlpha
+                    ? kCVPixelFormatType_32BGRA
+                    : kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
                 kCVPixelBufferWidthKey: Int(canvasSize.width),
                 kCVPixelBufferHeightKey: Int(canvasSize.height),
                 kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary,

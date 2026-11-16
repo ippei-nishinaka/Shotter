@@ -158,6 +158,12 @@ final class VideoExporter: @unchecked Sendable {
         let audioTracks = try await asset.loadTracks(withMediaType: .audio)
         let size = try await videoTrack.load(.naturalSize)
         let sourceBitRate = Double(try await videoTrack.load(.estimatedDataRate))
+        let sourceHasAlpha = try await Self.hasAlpha(videoTrack)
+        // MOV は透過つきの HEVC で角丸の外側を透明のまま残す。MP4（H.264）は透過を持てないので白で埋める。
+        let codec: AVVideoCodecType = job.format == .mov && sourceHasAlpha && RecordingWriter.supportsHEVC
+            ? .hevcWithAlpha
+            : job.format.codec
+        let fillsTransparency = sourceHasAlpha && codec != .hevcWithAlpha
 
         let reader = try AVAssetReader(asset: asset)
         reader.timeRange = CMTimeRange(
@@ -192,10 +198,10 @@ final class VideoExporter: @unchecked Sendable {
         writer.shouldOptimizeForNetworkUse = job.format == .mp4
 
         // 元と同じくらいの画質を保つ。H.264 は HEVC より効率が落ちるので多めに割り当てる。
-        let factor = job.format.codec == .h264 ? 1.6 : 1.1
+        let factor = codec == .h264 ? 1.6 : 1.1
         let bitRate = min(max(sourceBitRate * factor, 1_500_000), 40_000_000)
         let videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: [
-            AVVideoCodecKey: job.format.codec,
+            AVVideoCodecKey: codec,
             AVVideoWidthKey: Int(size.width),
             AVVideoHeightKey: Int(size.height),
             AVVideoColorPropertiesKey: [
@@ -257,6 +263,7 @@ final class VideoExporter: @unchecked Sendable {
                 let time = CMSampleBufferGetPresentationTimeStamp(sample).seconds
                 if let pixelBuffer = CMSampleBufferGetImageBuffer(sample) {
                     video.overlay?.draw(at: time, onto: pixelBuffer)
+                    if fillsTransparency { Self.fillTransparentArea(of: pixelBuffer, with: .white) }
                 }
                 video.input.append(sample)
 
@@ -307,6 +314,39 @@ final class VideoExporter: @unchecked Sendable {
 }
 
 extension VideoExporter {
+
+    /// 透過つき（ウィンドウの角丸の外側が透明）の動画か。
+    static func hasAlpha(_ track: AVAssetTrack) async throws -> Bool {
+        let descriptions = try await track.load(.formatDescriptions)
+        return descriptions.contains { description in
+            if CMFormatDescriptionGetMediaSubType(description) == kCMVideoCodecType_HEVCWithAlpha { return true }
+            let extensions = CMFormatDescriptionGetExtensions(description) as? [CFString: Any]
+            return extensions?[kCMFormatDescriptionExtension_ContainsAlphaChannel] as? Bool ?? false
+        }
+    }
+
+    /// 透明なところを、後ろに色を敷いて埋める（透過を持てない形式で書き出すとき用）。
+    /// そのままエンコーダに渡すと、透明なところは黒くなってしまう。
+    static func fillTransparentArea(of pixelBuffer: CVPixelBuffer, with color: CGColor) {
+        CVPixelBufferLockBaseAddress(pixelBuffer, [])
+        defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, []) }
+        let width = CVPixelBufferGetWidth(pixelBuffer)
+        let height = CVPixelBufferGetHeight(pixelBuffer)
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let context = CGContext(
+                data: CVPixelBufferGetBaseAddress(pixelBuffer),
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: CVPixelBufferGetBytesPerRow(pixelBuffer),
+                space: space,
+                bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
+              )
+        else { return }
+        context.setBlendMode(.destinationOver)
+        context.setFillColor(color)
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+    }
 
     /// 注釈を焼き込んだ GIF アニメーションを書き出す。
     ///

@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 
 /// 選択された領域。ウィンドウを選んだ場合は角丸のマスクをかけたいので区別する。
 struct SelectionResult {
@@ -29,6 +30,8 @@ final class AreaSelectionController: NSObject, SelectionOverlayViewDelegate {
 
     private var mode: CaptureMode = .area
     private var candidateWindows: [CapturedWindow] = []
+    /// 選択中だけ登録する Esc のホットキー。
+    private var escapeHotKeyID: UInt32?
 
     var isActive: Bool { !windows.isEmpty }
 
@@ -68,6 +71,13 @@ final class AreaSelectionController: NSObject, SelectionOverlayViewDelegate {
         }
 
         NSApp.activate(ignoringOtherApps: true)
+
+        // オーバーレイがキーウィンドウになれなかった（アプリの前面化が間に合わない、
+        // 他のアプリにフォーカスが残る、など）ときでも Esc で確実にやめられるよう、
+        // 選択中だけ Esc をホットキーとして押さえる。
+        escapeHotKeyID = HotKeyManager.shared.registerTemporary(keyCode: UInt32(kVK_Escape)) { [weak self] in
+            self?.cancel()
+        }
 
         // マウスカーソルのあるディスプレイのウィンドウをキーにして Esc を受け取れるようにする。
         // すでに前面に出しているので、再度 order させない makeKey を使う。
@@ -139,6 +149,11 @@ final class AreaSelectionController: NSObject, SelectionOverlayViewDelegate {
     private func finish(with result: SelectionResult?) {
         guard let completion else { return }
         self.completion = nil
+
+        if let escapeHotKeyID {
+            HotKeyManager.shared.unregisterTemporary(escapeHotKeyID)
+            self.escapeHotKeyID = nil
+        }
 
         for window in windows {
             window.overlayView.delegate = nil

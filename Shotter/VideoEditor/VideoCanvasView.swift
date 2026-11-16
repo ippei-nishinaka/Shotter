@@ -53,6 +53,13 @@ final class VideoCanvasContainerView: NSView {
 
     override var isFlipped: Bool { true }
 
+    /// プレイヤーの下にもキャンバスと同じ背景を敷く。収録した動画は角丸の外側が透明なので、
+    /// 何も敷かないとウィンドウの白い背景が角から透けて、角が四角く見えてしまう。
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.underPageBackgroundColor.setFill()
+        dirtyRect.fill()
+    }
+
     override func layout() {
         super.layout()
         canvas.frame = bounds

@@ -140,11 +140,17 @@ final class RecordingSetupModel: ObservableObject {
     let appName: String
     /// ウィンドウの大きさを変えると更新する。
     @Published var pixelSizeDescription: String
+    /// 収録するウィンドウの大きさ（ポイント）。目安容量の見積もりに使う。ウィンドウの大きさを変えると更新する。
+    @Published var windowPointSize: CGSize
+    /// ウィンドウがある画面の拡大率。
+    var screenScale: CGFloat
     let microphones = MicrophoneCapture.availableDevices()
 
-    init(appName: String, pixelSizeDescription: String) {
+    init(appName: String, pixelSizeDescription: String, windowPointSize: CGSize, screenScale: CGFloat) {
         self.appName = appName
         self.pixelSizeDescription = pixelSizeDescription
+        self.windowPointSize = windowPointSize
+        self.screenScale = screenScale
         #if DEBUG
         // --debug-schedule-ui で、開始・終了の時刻を指定した状態で開く（見た目の確認用）。
         if CommandLine.arguments.contains("--debug-schedule-ui") {
@@ -184,15 +190,19 @@ final class RecordingSetupModel: ObservableObject {
         return text
     }
 
-    var footnote: String {
-        let size = quality.sizeEstimateDescription(
+    /// 「1 時間あたり 約 0.9GB」。画質の選択肢のすぐ下に出す。
+    var sizeEstimate: String {
+        quality.sizeEstimateDescription(
+            pixelSize: quality.outputPixelSize(forPointSize: windowPointSize, scale: screenScale),
             systemAudio: sound != .none,
             microphone: microphone != MicrophoneChoice.off
         )
+    }
+
+    var footnote: String {
         // 実際に登録できているキーだけを案内する（割り当てなし・他アプリと競合のときは出さない）。
-        let stop = HotKeyManager.shared.registeredCombos[.screenRecording]
+        HotKeyManager.shared.registeredCombos[.screenRecording]
             .map { "止めるときは \($0.displayString) か、メニューバーから" } ?? "止めるときはメニューバーから"
-        return "\(size)　·　\(stop)"
     }
 }
 
@@ -254,7 +264,7 @@ struct RecordingSetupView: View {
                 }
             }
 
-            HStack(spacing: 18) {
+            HStack(alignment: .top, spacing: 18) {
                 Picker("音", selection: $model.sound) {
                     ForEach(RecordingSoundChoice.allCases) { choice in
                         Text(choice.title(appName: model.appName)).tag(choice)
@@ -268,13 +278,20 @@ struct RecordingSetupView: View {
                 }
                 .fixedSize()
 
-                Picker("画質", selection: $model.quality) {
-                    ForEach(RecordingQuality.allCases) { quality in
-                        Text(quality.title).tag(quality)
+                VStack(alignment: .trailing, spacing: 3) {
+                    Picker("画質", selection: $model.quality) {
+                        ForEach(RecordingQuality.allCases) { quality in
+                            Text(quality.title).tag(quality)
+                        }
                     }
+                    .fixedSize()
+                    .help(model.quality.detail)
+
+                    Text(model.sizeEstimate)
+                        .font(.system(size: 10).monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .fixedSize()
                 }
-                .fixedSize()
-                .help(model.quality.detail)
             }
 
             scheduleRows
@@ -343,7 +360,12 @@ enum RecordingSetupPanel {
 
     /// - Returns: 「収録開始」「予約する」ならその内容、キャンセルなら nil。
     static func run(windowID: CGWindowID, initialFrame: CGRect, appName: String) async -> Result? {
-        let model = RecordingSetupModel(appName: appName, pixelSizeDescription: sizeText(for: initialFrame))
+        let model = RecordingSetupModel(
+            appName: appName,
+            pixelSizeDescription: sizeText(for: initialFrame),
+            windowPointSize: initialFrame.size,
+            screenScale: screen(containing: initialFrame)?.backingScaleFactor ?? 2
+        )
         var targetFrame = initialFrame
 
         let dimmers = NSScreen.screens.map { ScreenDimPanel(screen: $0) }
@@ -401,6 +423,8 @@ enum RecordingSetupPanel {
                     border.update(frame: latest)
                     for dimmer in dimmers { dimmer.update(hole: latest) }
                     model.pixelSizeDescription = sizeText(for: latest)
+                    model.windowPointSize = latest.size
+                    model.screenScale = screen(containing: latest)?.backingScaleFactor ?? 2
                     // 寸法の桁が変わると文の長さも変わるので、中身に合わせて大きさも取り直す。
                     hosting.layoutSubtreeIfNeeded()
                     created.setFrame(frame(for: hosting.fittingSize, centeredOn: latest), display: true)

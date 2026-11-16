@@ -66,6 +66,10 @@ final class RecordingWriter {
         AVAssetExportSession.allExportPresets().contains(AVAssetExportPresetHEVCHighestQuality)
     }
 
+    /// 透過（アルファ）つきで書き込むか。true なら BGRA のバッファを渡すこと。
+    /// ウィンドウの角の外側を透明のまま残せる。HEVC が使えない Mac では false（角は黒くなる）。
+    let preservesAlpha: Bool
+
     init(url: URL, settings: RecordingWriterSettings) throws {
         self.settings = settings
 
@@ -78,8 +82,8 @@ final class RecordingWriter {
         writer.shouldOptimizeForNetworkUse = false
 
         let quality = settings.quality
-        let videoSettings: [String: Any] = [
-            AVVideoCodecKey: Self.supportsHEVC ? AVVideoCodecType.hevc : AVVideoCodecType.h264,
+        func videoSettings(codec: AVVideoCodecType) -> [String: Any] { [
+            AVVideoCodecKey: codec,
             AVVideoWidthKey: Int(settings.pixelSize.width),
             AVVideoHeightKey: Int(settings.pixelSize.height),
             AVVideoColorPropertiesKey: [
@@ -88,16 +92,27 @@ final class RecordingWriter {
                 AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2,
             ],
             AVVideoCompressionPropertiesKey: [
-                AVVideoAverageBitRateKey: quality.videoBitRate,
+                AVVideoAverageBitRateKey: quality.videoBitRate(forPixelSize: settings.pixelSize),
                 AVVideoExpectedSourceFrameRateKey: quality.framesPerSecond,
                 // 後でエディタからシークしやすいよう、キーフレームは 2 秒おきに入れる。
                 AVVideoMaxKeyFrameIntervalDurationKey: 2,
             ],
-        ]
-        guard writer.canApply(outputSettings: videoSettings, forMediaType: .video) else {
+        ] }
+
+        // ウィンドウの角丸の外側を透明のまま残すため、使えるなら透過つきの HEVC で書く。
+        let alphaSettings = videoSettings(codec: .hevcWithAlpha)
+        let opaqueSettings = videoSettings(codec: Self.supportsHEVC ? .hevc : .h264)
+        let chosenSettings: [String: Any]
+        if Self.supportsHEVC, writer.canApply(outputSettings: alphaSettings, forMediaType: .video) {
+            chosenSettings = alphaSettings
+            preservesAlpha = true
+        } else if writer.canApply(outputSettings: opaqueSettings, forMediaType: .video) {
+            chosenSettings = opaqueSettings
+            preservesAlpha = false
+        } else {
             throw RecordingWriterError.cannotCreateWriter("映像の設定が使えません")
         }
-        videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
+        videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: chosenSettings)
         videoInput.expectsMediaDataInRealTime = settings.isRealTime
         writer.add(videoInput)
 
